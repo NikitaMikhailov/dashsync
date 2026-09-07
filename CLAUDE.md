@@ -68,6 +68,9 @@ If it's unclear which category a task falls into, ask before writing code.
 - Run the `reviewer` subagent over the diff before committing.
 - For a decision worth remembering (a dependency choice, a rejected
   alternative, a schema design), add an ADR under `docs/decisions/`.
+- No AI-attribution trailers or footers in commit messages or PR
+  descriptions (no `Co-Authored-By: Claude ...`, no "Generated with ..."
+  line) — ever, in this repo.
 
 ## Don't
 
