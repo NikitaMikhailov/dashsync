@@ -1,64 +1,78 @@
 # dashsync
 
-CLI на Go: генерация и идемпотентная синхронизация конфигов self-hosted
-дашбордов (Homepage, Homer, Dashy) из Docker API. Полный план — @PROJECT_PLAN.md
+A Go CLI that generates and idempotently syncs config files for self-hosted
+dashboards (Homepage, Homer, Dashy) from the Docker API.
 
-## Контекст об авторе
+## Scope
 
-Инженер с 10+ годами опыта в инфраструктуре. **Go изучает через этот проект.**
-Цель — не быстро получить работающий код, а понять каждую строку и уметь
-защитить её на код-ревью.
+- Read-only against Docker. dashsync never writes to Docker, never deploys
+  or restarts containers.
+- No web UI, no daemon, no database, no Kubernetes support.
+- No Homarr support — its config lives in a database, there's nothing to
+  generate.
+- Complements Homepage/Glance's built-in label discovery; it doesn't
+  replace it. The value here is a deterministic, git-committed config file.
 
-## Режимы работы — главное правило
+## Human-authored core
 
-- Файлы в `internal/merge/`, `internal/model/`, `internal/render/`,
-  `internal/buildinfo/`: **не пиши реализацию сам**. Объясни подход, покажи
-  идиому на постороннем примере, напиши тест — реализацию пишет автор.
-  Потом ревьюишь.
-- Бойлерплейт (cobra-команды, CI, Dockerfile, GoReleaser): пиши, но
-  сопровождай объяснением нетривиальных конструкций.
-- Рутина (форматирование, переименования): делай молча.
+`internal/merge`, `internal/model`, `internal/render/*`, and
+`internal/buildinfo` hold the logic that makes this project worth
+reviewing. Code in these packages is written by a human contributor, not
+generated wholesale by an AI assistant:
 
-Если не уверен, в каком режиме задача — спроси.
+- Explain the approach and the relevant Go idiom, write the test, and leave
+  the implementation as a stub (a `panic("TODO: ...")` with the contract in
+  a doc comment works well) for the author to fill in.
+- Review the resulting implementation like any other PR.
 
-## Правила кода
+Boilerplate (cobra commands, CI config, Dockerfile, release config) can be
+written directly, but call out any non-obvious construct in the diff or PR
+description. Purely mechanical changes (renames, formatting, dependency
+bumps, fixture generation) need no explanation.
 
-- Только stdlib и утверждённые зависимости (см. PROJECT_PLAN.md §3).
-  Новая зависимость — сначала обсуждение, потом код. Это правило исполняется
-  линтером `depguard`, а не держится на честном слове: добавление импорта вне
-  allowlist роняет CI.
-- Ошибки: `fmt.Errorf("контекст: %w", err)`. Никаких `panic` вне main.
-- `context.Context` — первый параметр, никогда не в структуре.
-- Интерфейсы маленькие и объявляются у потребителя.
-- Вывод рендереров детерминирован: явная сортировка, никакого range по map.
-- Docker используется **только для чтения**. Любая запись в Docker — ошибка.
-- Запись файлов атомарная: temp + rename.
-- Пакетных переменных нет (`gochecknoglobals`). Единственное исключение —
-  переменные под `-ldflags` в `internal/buildinfo`, помеченные `//nolint`
-  с объяснением.
+If it's unclear which category a task falls into, ask before writing code.
 
-## Команды
+## Code rules
 
-- `go test ./... -race` — тесты
-- `go test ./... -update` — обновить golden-файлы (появится на M2)
-- `golangci-lint run` — линтер
-- `golangci-lint config verify` — проверить валидность `.golangci.yml`
-- `go build ./cmd/dashsync` — сборка
+- Only the standard library and already-approved dependencies (see
+  `go.mod`). Adding a new one is a discussion first, code second — enforced
+  by the `depguard` linter, not by convention: an import outside the
+  allowlist fails CI.
+- Errors: `fmt.Errorf("context: %w", err)`. No `panic` outside of `main`.
+- `context.Context` is always the first parameter, never a struct field.
+- Interfaces are small and declared by the consumer, not next to the
+  implementation.
+- Renderer output is deterministic: explicit sorting, never `range` over a
+  map when order matters.
+- File writes are atomic: write to a temp file, then rename.
+- No package-level mutable state (`gochecknoglobals`). The one sanctioned
+  exception is the `-ldflags`-injected version variables in
+  `internal/buildinfo`, each marked with a `//nolint` explaining why.
 
-## Процесс
+## Commands
 
-- Любая задача сложнее опечатки начинается с plan mode.
-- Тест пишется до реализации.
-- Коммиты мелкие, conventional commits (`feat:`, `fix:`, `refactor:`, `test:`,
-  `docs:`, `chore:`).
-- Ветка на задачу, PR даже в свой репозиторий. `main` защищён.
-- После значимого изменения — предложи, нужен ли ADR в `docs/decisions/`.
-- Перед коммитом прогони субагента `reviewer` по дифу.
+- `go test ./... -race` — tests
+- `go test ./... -update` — refresh golden files (from M2 onward)
+- `golangci-lint run` — lint
+- `golangci-lint config verify` — validate `.golangci.yml`
+- `go build ./cmd/dashsync` — build
 
-## Чего не делать
+## Process
 
-- Не расширяй скоуп: без веб-UI, без Kubernetes, без Homarr (у него БД).
-- Не добавляй абстракции «на будущее».
-- Не пиши код в `internal/merge`, `internal/model`, `internal/render`,
-  `internal/buildinfo` за автора.
-- Не хвали код. Ищи в нём проблемы.
+- Anything beyond a typo-level fix starts in plan mode.
+- Tests are written before the implementation.
+- Small commits, Conventional Commits (`feat:`, `fix:`, `refactor:`,
+  `test:`, `docs:`, `chore:`).
+- One branch per change, a PR even against this same repo. `main` is
+  protected: PRs only, required checks must pass.
+- Run the `reviewer` subagent over the diff before committing.
+- For a decision worth remembering (a dependency choice, a rejected
+  alternative, a schema design), add an ADR under `docs/decisions/`.
+
+## Don't
+
+- Don't grow the scope: no web UI, no Kubernetes, no Homarr support.
+- Don't add abstractions "for later."
+- Don't write the implementation in `internal/merge`, `internal/model`,
+  `internal/render`, or `internal/buildinfo` on the author's behalf.
+- Don't praise the code. Look for what's wrong with it.
