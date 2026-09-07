@@ -6,37 +6,38 @@ import (
 	"github.com/NikitaMikhailov/dashsync/internal/buildinfo"
 )
 
-// newVersionCmd строит подкоманду `version`.
+// newVersionCmd builds the `version` subcommand.
 //
-// TODO(автор): реализовать. Контракт и идиомы — ниже; точный формат вывода
-// специфицирован тестами в version_test.go.
+// TODO(author): implement. The contract and idioms are below; the exact
+// output format is specified by the tests in version_test.go.
 //
-// Параметр info — функция, возвращающая метаданные сборки, а не сам пакет
-// buildinfo: в реальном дереве команд (см. NewRootCmd) сюда передаётся
-// buildinfo.Get, а в тестах — функция-заглушка с фиксированным значением.
-// Так version_test.go проверяет только форматирование и разбор флага, не
-// завися от того, реализован ли уже internal/buildinfo — идиома "принимай
-// интерфейсы, возвращай структуры" в деле: здесь минимальный интерфейс из
-// одной функции, а не целый пакет.
+// The info parameter is a function that returns build metadata, not the
+// buildinfo package itself: in the real command tree (see NewRootCmd) this
+// is buildinfo.Get, while tests pass a stub returning a fixed value. That
+// way version_test.go only exercises formatting and flag parsing, without
+// depending on whether internal/buildinfo is implemented yet — "accept
+// interfaces, return structs" in practice, just with a one-function
+// interface here instead of a whole package.
 //
-// Флаг --output принимает "text" (значение по умолчанию) и "json"; любое
-// другое значение — ошибка, а не молчаливый фолбэк на text.
+// The --output flag accepts "text" (the default) and "json"; any other
+// value is an error, not a silent fallback to text.
 //
-// Контракт формата (точные строки — в version_test.go):
+// Format contract (exact strings live in version_test.go):
 //
-//   - text: ровно три строки, в этом порядке —
+//   - text: exactly three lines, in this order —
 //     "dashsync {Version}\n"
-//     "commit:  {Commit, либо \"unknown\" если пусто}\n"
-//     "built:   {Date, либо \"unknown\" если пусто}\n"
-//   - json: encoding/json от значения info(), теги version/commit/date уже
-//     расставлены на buildinfo.Info — смотри internal/buildinfo/buildinfo.go.
-//   - неизвестное значение --output: вернуть ошибку, текст которой
-//     упоминает само переданное значение (тест ищет его подстрокой) — так
-//     видно, что именно написано не так, а не просто "bad flag".
+//     "commit:  {Commit, or \"unknown\" if empty}\n"
+//     "built:   {Date, or \"unknown\" if empty}\n"
+//   - json: encoding/json of info()'s return value; the version/commit/date
+//     tags are already set on buildinfo.Info — see
+//     internal/buildinfo/buildinfo.go.
+//   - an unrecognized --output value: return an error whose text mentions
+//     the value itself (the test looks for it as a substring) — so the user
+//     sees exactly what they got wrong instead of just "bad flag".
 //
-// Не забудь cmd.SilenceUsage = true и на этой команде тоже: version_test.go
-// строит её в изоляции, без родителя, и в таком виде cobra по умолчанию сама
-// печатает usage под каждой ошибкой.
+// Don't forget cmd.SilenceUsage = true on this command too: version_test.go
+// builds it standalone, without a parent, and in that shape cobra prints
+// usage under every error by default.
 func newVersionCmd(info func() buildinfo.Info) *cobra.Command {
-	panic("TODO: реализуй согласно контракту выше и тестам в version_test.go")
+	panic("TODO: implement per the contract above and the tests in version_test.go")
 }

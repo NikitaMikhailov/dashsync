@@ -1,11 +1,10 @@
-# Конфиг golangci-lint v2 (установлена v2.13.2, схема совместима начиная с
-# v2.0). Проверить, что файл валиден для установленной версии линтера:
+# golangci-lint v2 config (v2.13.2 installed, schema compatible from v2.0
+# onward). Validate this file against the installed linter version with:
 #
 #   golangci-lint config verify
 #
-# Каждый линтер сверх набора "standard" включён под конкретное правило из
-# CLAUDE.md или PROJECT_PLAN.md §4.3 — обоснование в PROJECT_PLAN.md §3 и
-# в docs/decisions/001-tooling-choices.md.
+# Every linter enabled on top of the "standard" set enforces a specific rule
+# from CLAUDE.md, not "on just in case" — see the comment next to each.
 version: "2"
 
 run:
@@ -16,33 +15,33 @@ linters:
   default: standard # errcheck, govet, ineffassign, staticcheck, unused
 
   enable:
-    # --- Правило: "только stdlib и утверждённые зависимости" (§3) ---
+    # --- Rule: "only stdlib and already-approved dependencies" ---
     - depguard
 
-    # --- Правило: "fmt.Errorf(...%w...), errors.Is/As" (§4.3, идиома 2) ---
+    # --- Rule: "fmt.Errorf(...%w...), errors.Is/As" ---
     - errorlint
-    - nilerr # возврат nil при ненулевой ошибке — тихий баг, который не ловит vet
+    - nilerr # returning nil on a non-nil error — a silent bug vet won't catch
 
-    # --- Правило: "context.Context — первый параметр, не в структуре" ---
-    - noctx # HTTP/Docker-запросы без контекста
-    - bodyclose # тело HTTP-ответа не закрыто
+    # --- Rule: "context.Context is always the first parameter, never a struct field" ---
+    - noctx # HTTP/Docker calls made without a context
+    - bodyclose # HTTP response body left unclosed
 
-    # --- Правило: "нет глобального состояния" (§4.3, идиома 10) ---
+    # --- Rule: "no global state" ---
     - gochecknoglobals
     - gochecknoinits
 
-    # --- Учебный чекпоинт M1: value vs pointer receiver ---
-    - recvcheck # смешение value- и pointer-ресиверов на одном типе
+    # --- Catches mixing value and pointer receivers on the same type ---
+    - recvcheck
 
-    # --- Единообразный log/slog вместо разнобоя fmt.Println/log.Printf ---
+    # --- Consistent log/slog instead of a mix of fmt.Println/log.Printf ---
     - sloglint
 
-    # --- Дисциплина тестов (пригодится с M2, golden-хелперу — thelper) ---
+    # --- Test discipline (the golden-file helper will want thelper too) ---
     - thelper
     - tparallel
     - usetesting
 
-    # --- Идиоматичность и мелкие ловушки ---
+    # --- Idiomatic Go and small footguns ---
     - revive
     - gocritic
     - misspell
@@ -53,7 +52,7 @@ linters:
 
   exclusions:
     presets:
-      - std-error-handling # свои проверки дают errorlint/nilerr; дефолтные шаблоны шумят
+      - std-error-handling # errorlint/nilerr already cover this; the default presets are noisy on top
 
   settings:
     depguard:
@@ -67,13 +66,13 @@ linters:
             - github.com/spf13/pflag
           deny:
             - pkg: "gopkg.in/yaml.v3"
-              desc: "архивирован (апрель 2025) и не даёт доступа к AST/комментариям — используем goccy/go-yaml (появится в M3)"
+              desc: "archived (April 2025) and gives no access to the AST/comments — use goccy/go-yaml instead (lands in M3)"
             - pkg: "github.com/spf13/viper"
-              desc: "осознанно отвергнут в PROJECT_PLAN.md §3: лишние зависимости и магия ради одного конфиг-файла"
+              desc: "deliberately rejected: unnecessary dependencies and magic for what is a single config file"
             - pkg: "github.com/sirupsen/logrus"
-              desc: "используем stdlib log/slog"
+              desc: "use stdlib log/slog instead"
             - pkg: "github.com/pkg/errors"
-              desc: "используем stdlib errors + fmt.Errorf(\"%w\")"
+              desc: "use stdlib errors + fmt.Errorf(\"%w\") instead"
 
     revive:
       rules:
@@ -82,7 +81,7 @@ linters:
 
     gocritic:
       disabled-checks:
-        - ifElseChain # стилистический спор, не баг
+        - ifElseChain # a style preference, not a bug
 
 formatters:
   enable:

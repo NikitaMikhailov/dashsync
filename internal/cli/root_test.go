@@ -19,7 +19,7 @@ func TestNewRootCmd_RegistersVersionSubcommand(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("NewRootCmd() не регистрирует подкоманду version")
+		t.Error("NewRootCmd() does not register a version subcommand")
 	}
 }
 
@@ -30,10 +30,10 @@ func TestRun_UnknownCommand(t *testing.T) {
 	got := Run([]string{"no-such-command"}, &stdout, &stderr)
 
 	if got != 1 {
-		t.Errorf("Run() код выхода = %d, want 1 (stderr: %s)", got, stderr.String())
+		t.Errorf("Run() exit code = %d, want 1 (stderr: %s)", got, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "unknown command") {
-		t.Errorf("stderr = %q, ожидалось упоминание неизвестной команды", stderr.String())
+		t.Errorf("stderr = %q, want it to mention the unknown command", stderr.String())
 	}
 }
 
@@ -44,9 +44,9 @@ func TestRun_Help(t *testing.T) {
 	got := Run([]string{"--help"}, &stdout, &stderr)
 
 	if got != 0 {
-		t.Errorf("Run() код выхода = %d, want 0 (stderr: %s)", got, stderr.String())
+		t.Errorf("Run() exit code = %d, want 0 (stderr: %s)", got, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "dashsync") {
-		t.Errorf("stdout = %q, ожидался usage-текст с упоминанием dashsync", stdout.String())
+		t.Errorf("stdout = %q, want usage text mentioning dashsync", stdout.String())
 	}
 }

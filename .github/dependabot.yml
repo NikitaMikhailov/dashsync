@@ -1,4 +1,4 @@
-# PROJECT_PLAN.md §3, §7.3: автообновления Go-модулей и GitHub Actions.
+# Keep Go modules and GitHub Actions pins up to date automatically.
 version: 2
 updates:
   - package-ecosystem: gomod

@@ -1,8 +1,9 @@
-// Command dashsync — CLI-инструмент, который превращает запущенные
-// Docker-контейнеры в статические конфиги self-hosted дашбордов.
+// Command dashsync turns running Docker containers into static config
+// files for self-hosted dashboards.
 //
-// Весь код здесь — только передача os.Args/os.Stdout/os.Stderr в
-// internal/cli.Run и код возврата процесса; любая логика живёт в internal/*.
+// Everything here is just forwarding os.Args/os.Stdout/os.Stderr to
+// internal/cli.Run and returning its exit code; all the logic lives under
+// internal/*.
 package main
 
 import (
