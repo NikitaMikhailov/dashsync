@@ -18,12 +18,12 @@ func TestVersionCmd_TextOutput(t *testing.T) {
 		want string
 	}{
 		{
-			name: "полные метаданные",
+			name: "full metadata",
 			info: buildinfo.Info{Version: "v0.3.0", Commit: "abc1234", Date: "2026-09-07T12:00:00Z"},
 			want: "dashsync v0.3.0\ncommit:  abc1234\nbuilt:   2026-09-07T12:00:00Z\n",
 		},
 		{
-			name: "dev-сборка без VCS-данных",
+			name: "dev build without VCS info",
 			info: buildinfo.Info{Version: "dev"},
 			want: "dashsync dev\ncommit:  unknown\nbuilt:   unknown\n",
 		},
@@ -64,10 +64,10 @@ func TestVersionCmd_JSONOutput(t *testing.T) {
 
 	var got buildinfo.Info
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatalf("вывод не распарсился как JSON: %v\nвывод: %s", err, stdout.String())
+		t.Fatalf("output did not parse as JSON: %v\noutput: %s", err, stdout.String())
 	}
 	if got != info {
-		t.Errorf("json-вывод = %+v, want %+v", got, info)
+		t.Errorf("json output = %+v, want %+v", got, info)
 	}
 }
 
@@ -80,9 +80,9 @@ func TestVersionCmd_UnknownOutputFlag(t *testing.T) {
 
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("Execute() = nil, want ошибку для неподдерживаемого значения --output")
+		t.Fatal("Execute() = nil, want an error for an unsupported --output value")
 	}
 	if !strings.Contains(err.Error(), "xml") {
-		t.Errorf("error = %q, ожидалось упоминание переданного значения %q", err.Error(), "xml")
+		t.Errorf("error = %q, want it to mention the passed value %q", err.Error(), "xml")
 	}
 }

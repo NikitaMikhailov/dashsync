@@ -1,8 +1,9 @@
-// Package cli содержит cobra-обвязку dashsync: построение дерева команд и
-// точку входа, которую вызывает cmd/dashsync/main.go.
+// Package cli holds dashsync's cobra wiring: building the command tree and
+// the entry point cmd/dashsync/main.go calls into.
 //
-// TODO(автор): реализовать NewRootCmd() и Run(). Контракт и идиомы — в
-// комментариях ниже; поведение специфицировано тестами в root_test.go.
+// TODO(author): implement NewRootCmd() and Run(). The contract and idioms
+// are in the comments below; behavior is specified by the tests in
+// root_test.go.
 package cli
 
 import (
@@ -11,49 +12,48 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewRootCmd строит корневую команду dashsync со всеми подкомандами.
+// NewRootCmd builds the root dashsync command with all its subcommands.
 //
-// Идиомы, которые здесь пригодятся:
+// Idioms worth knowing here:
 //
-//   - cobra.Command{Use, Short} — минимум для читаемого --help. Use — это
-//     то самое "dashsync", которое попадёт и в usage-текст, и в имя команды
-//     при поиске подкоманд (cmd.Commands()[i].Name()).
-//   - SilenceUsage: true — без него любая ошибка в RunE подкоманды
-//     допечатывает под сообщением об ошибке ещё и полный usage-текст, что
-//     для CLI-инструмента обычно шум, а не помощь.
-//   - SilenceErrors: true — cobra по умолчанию сама печатает ошибку в
-//     cmd.ErrOrStderr(). Здесь эту ответственность явно забирает себе Run(),
-//     чтобы у процесса был ровно один код, решающий, что напечатать и с
-//     каким exit-кодом выйти.
-//   - Подкоманды регистрируются через cmd.AddCommand(...), и каждая
-//     собирается своим конструктором (newVersionCmd), а не читает
-//     глобальные переменные — тот самый принцип "нет глобального
-//     состояния" из CLAUDE.md.
+//   - cobra.Command{Use, Short} is the minimum for readable --help. Use is
+//     the literal "dashsync" that shows up both in the usage text and as the
+//     command's name when looking up subcommands (cmd.Commands()[i].Name()).
+//   - SilenceUsage: true — without it, any error from a subcommand's RunE
+//     prints the full usage text right below the error message, which for a
+//     CLI tool is usually noise rather than help.
+//   - SilenceErrors: true — cobra prints the error to cmd.ErrOrStderr() by
+//     default. Here Run() explicitly takes over that job, so the process has
+//     exactly one place deciding what to print and what exit code to use.
+//   - Subcommands are registered via cmd.AddCommand(...), each built by its
+//     own constructor (newVersionCmd) rather than reading package-level
+//     variables — the same "no global state" principle from CLAUDE.md.
 //
-// Внутри NewRootCmd вызови newVersionCmd(buildinfo.Get) — здесь и только
-// здесь настоящий buildinfo.Get подключается к дереву команд. Сама
-// newVersionCmd ничего не знает о том, что источник данных — именно
-// debug.ReadBuildInfo(), только о сигнатуре func() buildinfo.Info. Поэтому
-// version_test.go тестирует форматирование вывода, вообще не завися от
-// состояния internal/buildinfo.
+// Inside NewRootCmd, call newVersionCmd(buildinfo.Get) — this is the one
+// and only place the real buildinfo.Get gets wired into the command tree.
+// newVersionCmd itself doesn't know its data source is
+// debug.ReadBuildInfo(), only the signature func() buildinfo.Info. That's
+// why version_test.go can test output formatting without depending on the
+// state of internal/buildinfo at all.
 func NewRootCmd() *cobra.Command {
-	panic("TODO: реализуй согласно контракту выше и тестам в root_test.go")
+	panic("TODO: implement per the contract above and the tests in root_test.go")
 }
 
-// Run — единственная точка входа, которую вызывает cmd/dashsync/main.go.
-// Она сама решает код возврата процесса, поэтому main.go сводится к
+// Run is the single entry point cmd/dashsync/main.go calls. It decides the
+// process exit code itself, so main.go reduces to
 // os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr)).
 //
-// Контракт:
-//   - построить дерево через NewRootCmd();
-//   - cmd.SetArgs(args), cmd.SetOut(stdout), cmd.SetErr(stderr) — явная
-//     передача зависимостей вместо чтения os.Args/os.Stdout напрямую внутри
-//     cobra-команд. Без этого Run() нельзя протестировать без реального
-//     процесса и без порчи stdout настоящего терминала во время `go test`;
-//   - если cmd.Execute() вернула ошибку — напечатать её в stderr (формат на
-//     твой вкус, но root_test.go ищет подстроку "unknown command" для
-//     случая несуществующей подкоманды) и вернуть 1;
-//   - иначе вернуть 0.
+// Contract:
+//   - build the tree via NewRootCmd();
+//   - cmd.SetArgs(args), cmd.SetOut(stdout), cmd.SetErr(stderr) — passing
+//     these explicitly instead of letting cobra commands read
+//     os.Args/os.Stdout directly. Without this, Run() can't be tested
+//     without spawning a real process, and `go test` would leak output onto
+//     the actual terminal;
+//   - if cmd.Execute() returns an error, print it to stderr (format is up
+//     to you, but root_test.go looks for the substring "unknown command"
+//     for the case of a nonexistent subcommand) and return 1;
+//   - otherwise return 0.
 func Run(args []string, stdout, stderr io.Writer) int {
-	panic("TODO: реализуй согласно контракту выше и тестам в root_test.go")
+	panic("TODO: implement per the contract above and the tests in root_test.go")
 }
