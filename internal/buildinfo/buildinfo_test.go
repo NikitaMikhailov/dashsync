@@ -70,6 +70,24 @@ func TestResolve(t *testing.T) {
 			want: Info{Version: "v1.4.0"},
 		},
 		{
+			// Since Go 1.24-ish, a plain `go build` inside a dirty VCS
+			// checkout synthesizes a pseudo-version for the main module
+			// instead of "(devel)" — this must still resolve to "dev", not
+			// be shown as if it were a real release.
+			name:    "plain go build synthesizes a pseudo-version, not a release",
+			version: "dev",
+			bi: &debug.BuildInfo{
+				Main: debug.Module{Version: "v0.0.0-20260907172338-407506951914+dirty"},
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "40750695191440d37b4d6e46fb2e6a022669d469"},
+					{Key: "vcs.time", Value: "2026-09-07T17:23:38Z"},
+					{Key: "vcs.modified", Value: "true"},
+				},
+			},
+			ok:   true,
+			want: Info{Version: "dev", Commit: "4075069+dirty", Date: "2026-09-07T17:23:38Z"},
+		},
+		{
 			name:    "no build info available at all",
 			version: "dev",
 			bi:      nil,
