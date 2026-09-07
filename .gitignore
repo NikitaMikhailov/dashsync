@@ -1,0 +1,20 @@
+# Собранный бинарь и артефакты GoReleaser
+/dashsync
+/dist/
+
+# Покрытие и профили
+coverage.out
+coverage.html
+*.prof
+
+# Go workspace — локальная штука, в репозиторий не едет
+go.work
+go.work.sum
+
+# Редакторы и ОС
+.DS_Store
+.idea/
+.vscode/
+
+# Локальные переопределения настроек Claude Code
+.claude/settings.local.json
