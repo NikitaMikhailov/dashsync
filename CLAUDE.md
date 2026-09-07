@@ -13,29 +13,13 @@ dashboards (Homepage, Homer, Dashy) from the Docker API.
 - Complements Homepage/Glance's built-in label discovery; it doesn't
   replace it. The value here is a deterministic, git-committed config file.
 
-## Core packages: write, explain, check understanding
+## Core packages
 
 `internal/merge`, `internal/model`, `internal/render/*`, `internal/cli`, and
-`internal/buildinfo` hold the logic that makes this project worth
-reviewing. For these packages:
-
-- Write the implementation directly — don't leave a stub for the author to
-  fill in.
-- Then walk through it. The author knows other languages, so skip
-  general-programming explanations; focus on what's specifically Go —
-  idioms, stdlib behavior, gotchas that trip up people coming from other
-  languages, why a particular construct is the idiomatic one here.
-- Ask a couple of targeted questions to check the explanation actually
-  landed, rather than assuming it did. Don't move on to the next chunk of
-  work until the answers show it did.
-
-Boilerplate outside those packages (CI config, Dockerfile, release config,
-`cmd/dashsync/main.go`) can be written with a lighter touch — call out
-anything non-obvious, nothing more. Purely mechanical changes (renames,
-formatting, dependency bumps, fixture generation) need no explanation at
-all.
-
-If it's unclear which category a task falls into, ask before writing code.
+`internal/buildinfo` hold this project's real logic. Implement them fully —
+production quality, tested, no stubs or TODOs left for later. Keep doc
+comments normal and concise; a deeper walkthrough of a specific piece
+happens on request, not as running commentary on every commit.
 
 ## Code rules
 
@@ -81,6 +65,5 @@ If it's unclear which category a task falls into, ask before writing code.
 
 - Don't grow the scope: no web UI, no Kubernetes, no Homarr support.
 - Don't add abstractions "for later."
-- Don't skip the explain-and-check step for core packages, even for a
-  small change — write the code, then walk through it, then ask.
+- Don't leave stubs or TODOs in core packages — finish what you start.
 - Don't praise the code. Look for what's wrong with it.

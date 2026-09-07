@@ -1,0 +1,94 @@
+# golangci-lint v2 config (v2.13.2 installed, schema compatible from v2.0
+# onward). Validate this file against the installed linter version with:
+#
+#   golangci-lint config verify
+#
+# Every linter enabled on top of the "standard" set enforces a specific rule
+# from CLAUDE.md, not "on just in case" — see the comment next to each.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+
+  enable:
+    # --- Rule: "only stdlib and already-approved dependencies" ---
+    - depguard
+
+    # --- Rule: "fmt.Errorf(...%w...), errors.Is/As" ---
+    - errorlint
+    - nilerr # returning nil on a non-nil error — a silent bug vet won't catch
+
+    # --- Rule: "context.Context is always the first parameter, never a struct field" ---
+    - noctx # HTTP/Docker calls made without a context
+    - bodyclose # HTTP response body left unclosed
+
+    # --- Rule: "no global state" ---
+    - gochecknoglobals
+    - gochecknoinits
+
+    # --- Catches mixing value and pointer receivers on the same type ---
+    - recvcheck
+
+    # --- Consistent log/slog instead of a mix of fmt.Println/log.Printf ---
+    - sloglint
+
+    # --- Test discipline (the golden-file helper will want thelper too) ---
+    - thelper
+    - tparallel
+    - usetesting
+
+    # --- Idiomatic Go and small footguns ---
+    - revive
+    - gocritic
+    - misspell
+    - unconvert
+    - predeclared
+    - copyloopvar
+    - intrange
+
+  exclusions:
+    presets:
+      - std-error-handling # errorlint/nilerr already cover this; the default presets are noisy on top
+
+  settings:
+    depguard:
+      rules:
+        main:
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/NikitaMikhailov/dashsync
+            - github.com/spf13/cobra
+            - github.com/spf13/pflag
+          deny:
+            - pkg: "gopkg.in/yaml.v3"
+              desc: "archived (April 2025) and gives no access to the AST/comments — use goccy/go-yaml instead (lands in M3)"
+            - pkg: "github.com/spf13/viper"
+              desc: "deliberately rejected: unnecessary dependencies and magic for what is a single config file"
+            - pkg: "github.com/sirupsen/logrus"
+              desc: "use stdlib log/slog instead"
+            - pkg: "github.com/pkg/errors"
+              desc: "use stdlib errors + fmt.Errorf(\"%w\") instead"
+
+    revive:
+      rules:
+        - name: exported
+          disabled: false
+
+    gocritic:
+      disabled-checks:
+        - ifElseChain # a style preference, not a bug
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/NikitaMikhailov/dashsync
