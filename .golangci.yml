@@ -1,0 +1,95 @@
+# Конфиг golangci-lint v2 (установлена v2.13.2, схема совместима начиная с
+# v2.0). Проверить, что файл валиден для установленной версии линтера:
+#
+#   golangci-lint config verify
+#
+# Каждый линтер сверх набора "standard" включён под конкретное правило из
+# CLAUDE.md или PROJECT_PLAN.md §4.3 — обоснование в PROJECT_PLAN.md §3 и
+# в docs/decisions/001-tooling-choices.md.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+
+  enable:
+    # --- Правило: "только stdlib и утверждённые зависимости" (§3) ---
+    - depguard
+
+    # --- Правило: "fmt.Errorf(...%w...), errors.Is/As" (§4.3, идиома 2) ---
+    - errorlint
+    - nilerr # возврат nil при ненулевой ошибке — тихий баг, который не ловит vet
+
+    # --- Правило: "context.Context — первый параметр, не в структуре" ---
+    - noctx # HTTP/Docker-запросы без контекста
+    - bodyclose # тело HTTP-ответа не закрыто
+
+    # --- Правило: "нет глобального состояния" (§4.3, идиома 10) ---
+    - gochecknoglobals
+    - gochecknoinits
+
+    # --- Учебный чекпоинт M1: value vs pointer receiver ---
+    - recvcheck # смешение value- и pointer-ресиверов на одном типе
+
+    # --- Единообразный log/slog вместо разнобоя fmt.Println/log.Printf ---
+    - sloglint
+
+    # --- Дисциплина тестов (пригодится с M2, golden-хелперу — thelper) ---
+    - thelper
+    - tparallel
+    - usetesting
+
+    # --- Идиоматичность и мелкие ловушки ---
+    - revive
+    - gocritic
+    - misspell
+    - unconvert
+    - predeclared
+    - copyloopvar
+    - intrange
+
+  exclusions:
+    presets:
+      - std-error-handling # свои проверки дают errorlint/nilerr; дефолтные шаблоны шумят
+
+  settings:
+    depguard:
+      rules:
+        main:
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/NikitaMikhailov/dashsync
+            - github.com/spf13/cobra
+            - github.com/spf13/pflag
+          deny:
+            - pkg: "gopkg.in/yaml.v3"
+              desc: "архивирован (апрель 2025) и не даёт доступа к AST/комментариям — используем goccy/go-yaml (появится в M3)"
+            - pkg: "github.com/spf13/viper"
+              desc: "осознанно отвергнут в PROJECT_PLAN.md §3: лишние зависимости и магия ради одного конфиг-файла"
+            - pkg: "github.com/sirupsen/logrus"
+              desc: "используем stdlib log/slog"
+            - pkg: "github.com/pkg/errors"
+              desc: "используем stdlib errors + fmt.Errorf(\"%w\")"
+
+    revive:
+      rules:
+        - name: exported
+          disabled: false
+
+    gocritic:
+      disabled-checks:
+        - ifElseChain # стилистический спор, не баг
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/NikitaMikhailov/dashsync
