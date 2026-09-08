@@ -6,20 +6,20 @@ import (
 	"testing"
 )
 
-func TestNewRootCmd_RegistersVersionSubcommand(t *testing.T) {
+func TestNewRootCmd_RegistersSubcommands(t *testing.T) {
 	t.Parallel()
 
 	cmd := NewRootCmd()
 
-	found := false
+	registered := make(map[string]bool)
 	for _, sub := range cmd.Commands() {
-		if sub.Name() == "version" {
-			found = true
-			break
-		}
+		registered[sub.Name()] = true
 	}
-	if !found {
-		t.Error("NewRootCmd() does not register a version subcommand")
+
+	for _, want := range []string{"version", "inspect"} {
+		if !registered[want] {
+			t.Errorf("NewRootCmd() does not register a %q subcommand", want)
+		}
 	}
 }
 
