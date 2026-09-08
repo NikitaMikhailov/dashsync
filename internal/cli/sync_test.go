@@ -22,7 +22,7 @@ func TestSyncCmd_RendersHomepageByDefault(t *testing.T) {
 		{Name: "Jellyfin", Group: "Media", URL: "http://10.0.0.5:8096"},
 	}
 
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetArgs(nil)
@@ -48,7 +48,7 @@ func TestSyncCmd_GroupsBeforeRendering(t *testing.T) {
 		{Name: "jellyfin", Group: "Media"},
 	}
 
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetArgs(nil)
@@ -104,7 +104,7 @@ func TestSyncCmd_RendersHomerToStdout(t *testing.T) {
 
 	services := []model.Service{{Name: "Jellyfin", Group: "Media", URL: "http://10.0.0.5:8096"}}
 
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetArgs([]string{"--format", "homer"})
@@ -144,7 +144,7 @@ func TestSyncCmd_HomerRejectsOutputPath(t *testing.T) {
 	// --output-path must fail clearly rather than panic on a failed type
 	// assertion or silently fall back to some other behavior.
 	path := filepath.Join(t.TempDir(), "config.yml")
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return nil, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--format", "homer", "--output-path", path})
 
@@ -163,7 +163,7 @@ func TestSyncCmd_HomerRejectsOutputPath(t *testing.T) {
 func TestSyncCmd_UnknownFormat(t *testing.T) {
 	t.Parallel()
 
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return nil, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--format", "dashy"})
 
@@ -180,7 +180,7 @@ func TestSyncCmd_DiscoveryError(t *testing.T) {
 	t.Parallel()
 
 	wantErr := errors.New("connect to docker: no such host")
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return nil, wantErr })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, wantErr })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs(nil)
 
@@ -195,7 +195,7 @@ func TestSyncCmd_OutputPath_WritesFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "services.yaml")
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
 
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
@@ -234,7 +234,7 @@ func TestSyncCmd_OutputPath_PreservesExistingFilePermissions(t *testing.T) {
 	}
 
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
 
@@ -265,7 +265,7 @@ func TestSyncCmd_OutputPath_NewFileGetsReadableDefaultPermissions(t *testing.T) 
 	path := filepath.Join(t.TempDir(), "services.yaml")
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
 
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
 
@@ -290,7 +290,7 @@ func TestSyncCmd_OutputPath_DryRunDoesNotWrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "services.yaml")
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
 
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetArgs([]string{"--output-path", path, "--dry-run"})
@@ -317,7 +317,7 @@ func TestSyncCmd_OutputPath_MergesAndBacksUpExistingFile(t *testing.T) {
 	}
 
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
 
@@ -349,7 +349,7 @@ func TestSyncCmd_UnknownConflictValue(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "services.yaml")
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return nil, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--output-path", path, "--conflict", "ask-nicely"})
 
@@ -374,7 +374,7 @@ func TestSyncCmd_ConflictFail_LeavesFileUntouched(t *testing.T) {
 	}
 
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--output-path", path, "--conflict", "fail"})
 
@@ -401,7 +401,7 @@ func TestSyncCmd_DryRunDefaultsToTrueUnderCI(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "services.yaml")
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
 
-	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--output-path", path}) // --dry-run not passed explicitly
 
@@ -417,9 +417,9 @@ func TestSyncCmd_PassesHostAddrFlag(t *testing.T) {
 	t.Parallel()
 
 	var gotHostAddr string
-	cmd := newSyncCmd(func(_ context.Context, hostAddr string) ([]model.Service, error) {
+	cmd := newSyncCmd(func(_ context.Context, hostAddr, _ string) ([]model.Service, []error, error) {
 		gotHostAddr = hostAddr
-		return nil, nil
+		return nil, nil, nil
 	})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--host-addr", "10.0.0.5"})
@@ -429,5 +429,49 @@ func TestSyncCmd_PassesHostAddrFlag(t *testing.T) {
 	}
 	if gotHostAddr != "10.0.0.5" {
 		t.Errorf("discover was called with hostAddr %q, want %q", gotHostAddr, "10.0.0.5")
+	}
+}
+
+func TestSyncCmd_PassesConfigFlag(t *testing.T) {
+	t.Parallel()
+
+	var gotConfigPath string
+	cmd := newSyncCmd(func(_ context.Context, _, configPath string) ([]model.Service, []error, error) {
+		gotConfigPath = configPath
+		return nil, nil, nil
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--config", "/etc/dashsync/hosts.yaml"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil", err)
+	}
+	if gotConfigPath != "/etc/dashsync/hosts.yaml" {
+		t.Errorf("discover was called with configPath %q, want %q", gotConfigPath, "/etc/dashsync/hosts.yaml")
+	}
+}
+
+func TestSyncCmd_PrintsPerHostWarningsToStderr(t *testing.T) {
+	t.Parallel()
+
+	services := []model.Service{{Name: "Jellyfin", Group: "Media", URL: "http://10.0.0.5:8096"}}
+	warnings := []error{errors.New(`host "flaky": connection refused`)}
+
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) {
+		return services, warnings, nil
+	})
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs(nil)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil — a warning must not fail the command", err)
+	}
+	if !strings.Contains(stderr.String(), "flaky") {
+		t.Errorf("stderr = %q, want the per-host warning printed", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Jellyfin") {
+		t.Errorf("stdout = %q, want the rendered output from the hosts that did succeed", stdout.String())
 	}
 }

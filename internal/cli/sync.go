@@ -35,14 +35,15 @@ type mergeableRenderer interface {
 }
 
 // newSyncCmd builds the `sync` subcommand. discover supplies the
-// discovered services, same injection pattern as inspect and version.
-func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Service, error)) *cobra.Command {
+// discovered services and any non-fatal per-host warnings, same injection
+// pattern as inspect and version.
+func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) ([]model.Service, []error, error)) *cobra.Command {
 	renderers := map[string]render.Renderer{
 		"homepage": homepage.New(),
 		"homer":    homer.New(),
 	}
 
-	var format, hostAddr, outputPath, conflict string
+	var format, hostAddr, configPath, outputPath, conflict string
 	var dryRun bool
 
 	cmd := &cobra.Command{
@@ -68,7 +69,8 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Ser
 			}
 
 			if outputPath == "" {
-				services, err := discover(cmd.Context(), hostAddr)
+				services, warnings, err := discover(cmd.Context(), hostAddr, configPath)
+				printWarnings(cmd.ErrOrStderr(), warnings)
 				if err != nil {
 					return err
 				}
@@ -91,7 +93,8 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Ser
 						"omit --output-path to print to stdout instead", format)
 			}
 
-			services, err := discover(cmd.Context(), hostAddr)
+			services, warnings, err := discover(cmd.Context(), hostAddr, configPath)
+			printWarnings(cmd.ErrOrStderr(), warnings)
 			if err != nil {
 				return err
 			}
@@ -129,6 +132,7 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Ser
 	cmd.Flags().BoolVar(&dryRun, "dry-run", os.Getenv("CI") != "",
 		"preview changes without writing anything (defaults to true when $CI is set)")
 	addHostAddrFlag(cmd, &hostAddr)
+	addConfigFlag(cmd, &configPath)
 
 	return cmd
 }

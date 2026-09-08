@@ -21,7 +21,7 @@ func TestInspectCmd_TableOutput(t *testing.T) {
 		{Name: "internal-svc", Group: "Other", Source: model.Source{Host: "homelab-1"}},
 	}
 
-	cmd := newInspectCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newInspectCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetArgs(nil)
@@ -42,7 +42,7 @@ func TestInspectCmd_TableOutput(t *testing.T) {
 func TestInspectCmd_TableOutput_Empty(t *testing.T) {
 	t.Parallel()
 
-	cmd := newInspectCmd(func(context.Context, string) ([]model.Service, error) { return nil, nil })
+	cmd := newInspectCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetArgs(nil)
@@ -62,7 +62,7 @@ func TestInspectCmd_JSONOutput(t *testing.T) {
 		{ID: "abc123", Name: "jellyfin", Group: "Media", URL: "http://10.0.0.5:8096"},
 	}
 
-	cmd := newInspectCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	cmd := newInspectCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetArgs([]string{"--output", "json"})
@@ -83,7 +83,7 @@ func TestInspectCmd_JSONOutput(t *testing.T) {
 func TestInspectCmd_UnknownOutputFlag(t *testing.T) {
 	t.Parallel()
 
-	cmd := newInspectCmd(func(context.Context, string) ([]model.Service, error) { return nil, nil })
+	cmd := newInspectCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--output", "xml"})
 
@@ -100,7 +100,7 @@ func TestInspectCmd_DiscoveryError(t *testing.T) {
 	t.Parallel()
 
 	wantErr := errors.New("connect to docker: no such host")
-	cmd := newInspectCmd(func(context.Context, string) ([]model.Service, error) { return nil, wantErr })
+	cmd := newInspectCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, wantErr })
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs(nil)
 
@@ -114,9 +114,9 @@ func TestInspectCmd_PassesHostAddrFlag(t *testing.T) {
 	t.Parallel()
 
 	var gotHostAddr string
-	cmd := newInspectCmd(func(_ context.Context, hostAddr string) ([]model.Service, error) {
+	cmd := newInspectCmd(func(_ context.Context, hostAddr, _ string) ([]model.Service, []error, error) {
 		gotHostAddr = hostAddr
-		return nil, nil
+		return nil, nil, nil
 	})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--host-addr", "10.0.0.5"})
@@ -126,5 +126,49 @@ func TestInspectCmd_PassesHostAddrFlag(t *testing.T) {
 	}
 	if gotHostAddr != "10.0.0.5" {
 		t.Errorf("discover was called with hostAddr %q, want %q", gotHostAddr, "10.0.0.5")
+	}
+}
+
+func TestInspectCmd_PassesConfigFlag(t *testing.T) {
+	t.Parallel()
+
+	var gotConfigPath string
+	cmd := newInspectCmd(func(_ context.Context, _, configPath string) ([]model.Service, []error, error) {
+		gotConfigPath = configPath
+		return nil, nil, nil
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--config", "/etc/dashsync/hosts.yaml"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil", err)
+	}
+	if gotConfigPath != "/etc/dashsync/hosts.yaml" {
+		t.Errorf("discover was called with configPath %q, want %q", gotConfigPath, "/etc/dashsync/hosts.yaml")
+	}
+}
+
+func TestInspectCmd_PrintsPerHostWarningsToStderr(t *testing.T) {
+	t.Parallel()
+
+	services := []model.Service{{Name: "jellyfin", Group: "Media"}}
+	warnings := []error{errors.New(`host "flaky": connection refused`)}
+
+	cmd := newInspectCmd(func(context.Context, string, string) ([]model.Service, []error, error) {
+		return services, warnings, nil
+	})
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs(nil)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil — a warning must not fail the command", err)
+	}
+	if !strings.Contains(stderr.String(), "flaky") {
+		t.Errorf("stderr = %q, want the per-host warning printed", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "jellyfin") {
+		t.Errorf("stdout = %q, want the services from the hosts that did succeed", stdout.String())
 	}
 }

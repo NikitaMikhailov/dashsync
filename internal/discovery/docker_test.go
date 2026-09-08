@@ -13,7 +13,10 @@ import (
 	"github.com/NikitaMikhailov/dashsync/internal/model"
 )
 
-// fakeDockerClient implements DockerClient without a real daemon.
+// fakeDockerClient implements DockerClient without a real daemon. It also
+// implements Close, so multihost_test.go can reuse it wherever a full
+// dockerClient (DockerClient plus Close) is needed instead of declaring a
+// second, near-identical fake.
 type fakeDockerClient struct {
 	result client.ContainerListResult
 	err    error
@@ -22,6 +25,8 @@ type fakeDockerClient struct {
 func (f fakeDockerClient) ContainerList(context.Context, client.ContainerListOptions) (client.ContainerListResult, error) {
 	return f.result, f.err
 }
+
+func (f fakeDockerClient) Close() error { return nil }
 
 func TestDiscover(t *testing.T) {
 	t.Parallel()
@@ -153,5 +158,77 @@ func TestContainerName(t *testing.T) {
 				t.Errorf("containerName(%v) = %q, want %q", tt.names, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewDockerClientForHost_EmptyAddressUsesEnvironment(t *testing.T) {
+	// Not t.Parallel(): mutates Docker env vars via t.Setenv, which panics
+	// if this test runs in parallel with another that also sets them.
+	//
+	// client.FromEnv reads more than DOCKER_HOST — DOCKER_TLS_VERIFY and
+	// DOCKER_CERT_PATH, if set, make it try to load TLS material from a
+	// path that won't exist in this test's environment, and would turn
+	// this test flaky on any machine or runner where those happen to be
+	// set in the ambient shell (a local dev machine with Docker Desktop's
+	// TLS env sourced globally, say). Blanking them out — not just
+	// DOCKER_HOST — is what actually pins down the "empty address" branch
+	// regardless of the shell this test runs in.
+	t.Setenv("DOCKER_HOST", "tcp://from-env:2376")
+	t.Setenv("DOCKER_TLS_VERIFY", "")
+	t.Setenv("DOCKER_CERT_PATH", "")
+	t.Setenv("DOCKER_API_VERSION", "")
+
+	c, err := NewDockerClientForHost("", "", "", "")
+	if err != nil {
+		t.Fatalf("NewDockerClientForHost() error = %v, want nil", err)
+	}
+	defer c.Close() //nolint:errcheck // test cleanup, nothing to act on
+
+	if got := c.DaemonHost(); got != "tcp://from-env:2376" {
+		t.Errorf("DaemonHost() = %q, want the value read from $DOCKER_HOST", got)
+	}
+}
+
+func TestNewDockerClientForHost_ExplicitAddressOverridesEnvironment(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "tcp://from-env:2376")
+
+	c, err := NewDockerClientForHost("tcp://10.0.0.6:2376", "", "", "")
+	if err != nil {
+		t.Fatalf("NewDockerClientForHost() error = %v, want nil", err)
+	}
+	defer c.Close() //nolint:errcheck // test cleanup, nothing to act on
+
+	if got := c.DaemonHost(); got != "tcp://10.0.0.6:2376" {
+		t.Errorf("DaemonHost() = %q, want the explicit address, not $DOCKER_HOST", got)
+	}
+}
+
+func TestNewDockerClientForHost_NoTLSFieldsSetSucceeds(t *testing.T) {
+	t.Parallel()
+
+	// *client.Client exposes no accessor for its transport's TLS state, so
+	// this can't directly assert "TLS is unconfigured" the way DaemonHost
+	// lets the address-resolution tests assert their own outcome — the
+	// closest honest check is that skipping WithTLSClientConfig entirely
+	// (the "tlsCA/tlsCert/tlsKey all empty" branch in docker.go) doesn't
+	// itself produce an error. TestNewDockerClientForHost_TLSFieldsAreActuallyApplied,
+	// below, is what actually pins down that the tls fields reach the
+	// option when they're set.
+	c, err := NewDockerClientForHost("tcp://10.0.0.6:2376", "", "", "")
+	if err != nil {
+		t.Fatalf("NewDockerClientForHost() error = %v, want nil", err)
+	}
+	defer c.Close() //nolint:errcheck // test cleanup, nothing to act on
+}
+
+func TestNewDockerClientForHost_TLSFieldsAreActuallyApplied(t *testing.T) {
+	t.Parallel()
+
+	// A bad cert/key path only surfaces as an error if the tls fields
+	// actually reach client.WithTLSClientConfig — proving the branch is
+	// wired up without needing a real daemon or real certificates.
+	_, err := NewDockerClientForHost("tcp://10.0.0.6:2376", "", "/no/such/cert.pem", "/no/such/key.pem")
+	if err == nil {
+		t.Fatal("NewDockerClientForHost() error = nil, want an error: the tls cert/key files don't exist")
 	}
 }
