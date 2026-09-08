@@ -1,0 +1,7 @@
+- Media:
+  - Jellyfin:
+      href: http://10.0.0.5:8096
+      widget:
+        key: abc123
+        type: jellyfin
+        url: http://10.0.0.5:8096

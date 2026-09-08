@@ -43,8 +43,7 @@ func newInspectCmd(discover func(ctx context.Context, hostAddr string) ([]model.
 	}
 
 	cmd.Flags().StringVar(&output, "output", "table", `output format: "table" or "json"`)
-	cmd.Flags().StringVar(&hostAddr, "host-addr", "localhost",
-		"host or IP used to build URLs auto-detected from published ports")
+	addHostAddrFlag(cmd, &hostAddr)
 
 	return cmd
 }
