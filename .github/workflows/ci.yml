@@ -66,6 +66,21 @@ jobs:
       - name: go build
         run: go build -o /dev/null ./cmd/dashsync
 
+  e2e:
+    name: e2e (real Docker)
+    runs-on: ubuntu-latest
+    # GitHub's ubuntu-latest runners ship a working Docker daemon out of
+    # the box — the exact thing the "integration" build tag exists to
+    # require — so this needs no docker-in-docker setup, just the tag.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27"
+          cache: true
+      - name: go test -tags=integration
+        run: go test -tags=integration ./... -race -v
+
   vuln:
     name: govulncheck
     runs-on: ubuntu-latest
