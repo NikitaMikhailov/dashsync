@@ -2,11 +2,15 @@ package homepage
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 
 	"github.com/NikitaMikhailov/dashsync/internal/model"
 )
@@ -132,6 +136,115 @@ func TestRenderer_Render_SingleKeyInvariant(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestRenderer_RenderEntry(t *testing.T) {
+	t.Parallel()
+
+	svc := model.Service{
+		Name:        "Jellyfin",
+		URL:         "http://10.0.0.5:8096",
+		Icon:        "jellyfin",
+		Description: "Movies & TV",
+	}
+
+	got, err := New().RenderEntry(svc)
+	if err != nil {
+		t.Fatalf("RenderEntry() error = %v, want nil", err)
+	}
+
+	want := "Jellyfin:\n  description: Movies & TV\n  href: http://10.0.0.5:8096\n  icon: jellyfin\n"
+	if string(got) != want {
+		t.Errorf("RenderEntry() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderer_RenderEntry_MatchesRenderForTheSameService(t *testing.T) {
+	t.Parallel()
+
+	// internal/merge compares RenderEntry's output against what's already
+	// in a file byte-for-byte; the two entry points had better agree on
+	// what one service looks like, or that comparison is meaningless.
+	svc := model.Service{Name: "Jellyfin", Group: "Media", URL: "http://x", Icon: "jellyfin"}
+
+	entryOut, err := New().RenderEntry(svc)
+	if err != nil {
+		t.Fatalf("RenderEntry() error = %v, want nil", err)
+	}
+
+	docOut, err := New().Render([]model.Group{{Name: "Media", Services: []model.Service{svc}}})
+	if err != nil {
+		t.Fatalf("Render() error = %v, want nil", err)
+	}
+
+	var decoded []map[string][]map[string]any
+	if err := yaml.Unmarshal(docOut, &decoded); err != nil {
+		t.Fatalf("Render() output did not parse: %v", err)
+	}
+	var entryDecoded map[string]any
+	if err := yaml.Unmarshal(entryOut, &entryDecoded); err != nil {
+		t.Fatalf("RenderEntry() output did not parse: %v", err)
+	}
+
+	got := decoded[0]["Media"][0]
+	if len(got) != 1 || len(entryDecoded) != 1 {
+		t.Fatalf("expected single-key maps, got %v and %v", got, entryDecoded)
+	}
+	for name, fields := range got {
+		wantFields, ok := entryDecoded[name]
+		if !ok {
+			t.Fatalf("Render() named the service %q, RenderEntry() didn't: %v", name, entryDecoded)
+		}
+		if a, b := fmt.Sprint(fields), fmt.Sprint(wantFields); a != b {
+			t.Errorf("field mismatch for %q: Render()=%s RenderEntry()=%s", name, a, b)
+		}
+	}
+}
+
+func TestRenderer_NormalizeEntry_MatchesRenderEntryForUntouchedContent(t *testing.T) {
+	t.Parallel()
+
+	svc := model.Service{Name: "Jellyfin", URL: "http://10.0.0.5:8096", Icon: "jellyfin"}
+
+	rendered, err := New().RenderEntry(svc)
+	if err != nil {
+		t.Fatalf("RenderEntry() error = %v, want nil", err)
+	}
+
+	// Embed the rendered entry several levels deep, exactly like it'd sit
+	// inside a real services.yaml — this is the scenario NormalizeEntry
+	// exists for: a node's own String() reflects the column it was parsed
+	// at, which a byte comparison against RenderEntry's fresh,
+	// top-level-column output must not be sensitive to.
+	var nestedText strings.Builder
+	nestedText.WriteString("- Media:\n")
+	for i, line := range strings.Split(strings.TrimSuffix(string(rendered), "\n"), "\n") {
+		if i == 0 {
+			nestedText.WriteString("    - " + line + "\n") // the sequence marker for this entry
+		} else {
+			nestedText.WriteString("      " + line + "\n") // 6 more + rendered's own 2 = 8, matching a real file
+		}
+	}
+
+	f, err := parser.ParseBytes([]byte(nestedText.String()), parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse nested fixture: %v\n%s", err, nestedText.String())
+	}
+	//nolint:forcetypeassert,errcheck // shape is controlled by this test's own fixture above
+	root := f.Docs[0].Body.(*ast.SequenceNode)
+	//nolint:forcetypeassert,errcheck
+	mediaGroup := root.Values[0].(*ast.MappingNode)
+	//nolint:forcetypeassert,errcheck
+	servicesSeq := mediaGroup.Values[0].Value.(*ast.SequenceNode)
+	entryNode := servicesSeq.Values[0]
+
+	normalized, err := New().NormalizeEntry(entryNode)
+	if err != nil {
+		t.Fatalf("NormalizeEntry() error = %v, want nil", err)
+	}
+	if string(normalized) != string(rendered) {
+		t.Errorf("NormalizeEntry() = %q, want it to match RenderEntry()'s canonical form %q", normalized, rendered)
 	}
 }
 

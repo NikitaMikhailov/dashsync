@@ -41,7 +41,8 @@ happens on request, not as running commentary on every commit.
 ## Commands
 
 - `go test ./... -race` — tests
-- `go test ./... -update` — refresh golden files (from M2 onward)
+- `go test ./... -update` — refresh golden files
+- `go test -tags=integration ./... -race` — end-to-end tests against a real Docker daemon (needs one reachable; skips cleanly if not)
 - `golangci-lint run` — lint
 - `golangci-lint config verify` — validate `.golangci.yml`
 - `go build ./cmd/dashsync` — build
