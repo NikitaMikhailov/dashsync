@@ -18,6 +18,16 @@ url, ...}]}]`, differing only in the item-identity field (`title` vs
 `name`). That's ADR 003's own condition met, not a reopening of it against
 its own terms.
 
+This ADR is written from schema research (dashy.to's own documentation),
+ahead of `internal/render/dashy` existing in code — this project's own
+"tests before implementation" convention applied one level up, to the
+design decision rather than a single test. Step 2 of the plan below is what
+actually confirms it: `internal/render/dashy`'s implementation and test
+suite (in particular `TestRenderer_Render_GroupIdentifiedByNameFieldItemByTitleField`)
+verify the `name`/`title` divergence lands exactly where this ADR assumed
+it would, before step 3 builds `NamedGroupAdapter` on top of that
+assumption.
+
 ## Decision
 
 Introduce `merge.DocumentAdapter` (`internal/merge/adapter.go`): the

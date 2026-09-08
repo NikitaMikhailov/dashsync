@@ -14,6 +14,7 @@ import (
 	"github.com/NikitaMikhailov/dashsync/internal/merge"
 	"github.com/NikitaMikhailov/dashsync/internal/model"
 	"github.com/NikitaMikhailov/dashsync/internal/render"
+	"github.com/NikitaMikhailov/dashsync/internal/render/dashy"
 	"github.com/NikitaMikhailov/dashsync/internal/render/homepage"
 	"github.com/NikitaMikhailov/dashsync/internal/render/homer"
 )
@@ -22,13 +23,14 @@ import (
 // supports internal/merge's idempotent, file-writing mode: it needs the
 // finer-grained per-entry rendering (and, implicitly, a document shape
 // Merge knows how to walk) that plain whole-document Render doesn't
-// provide. Not every renderer manages this yet: Homer's config.yml nests
-// its managed section under a
-// "services:" key alongside a great deal of unrelated hand-configured
-// settings, and identifies groups and items by a "name" field rather
+// provide. Not every renderer manages this yet: Homer's and Dashy's config
+// files each nest their managed section (Homer's "services:", Dashy's
+// "sections:") under a key alongside a great deal of unrelated
+// hand-configured settings, and identify groups by a "name" field rather
 // than Homepage's single-key-map shape — internal/merge, built against
 // Homepage's shape first, doesn't generalize to that yet. See
-// docs/decisions/003-homer-render-only.md.
+// docs/decisions/007-document-adapter.md for the plan to close this gap
+// for both at once.
 type mergeableRenderer interface {
 	render.Renderer
 	merge.EntryRenderer
@@ -41,6 +43,7 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 	renderers := map[string]render.Renderer{
 		"homepage": homepage.New(),
 		"homer":    homer.New(),
+		"dashy":    dashy.New(),
 	}
 
 	var format, hostAddr, configPath, outputPath, conflict string

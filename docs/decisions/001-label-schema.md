@@ -72,3 +72,8 @@ renderer-specific fields (M2+: a Homepage widget config, a Homer subtitle,
   entirely outside a stack deploy, so a label placed under `deploy.labels`
   in that mode never reaches any container at all. A container run this
   way needs the label under the service's top-level `labels:` key instead.
+- The `dashsync.<anything else>` → `Extra` mechanism now has three real
+  instances of the same convention: `dashsync.homepage.widget.*` (Homepage,
+  M2), `dashsync.homer.*` (Homer, M4), and `dashsync.dashy.*` (Dashy) — each
+  renderer picks its own fields straight out of `Extra` by its own prefix,
+  with no changes needed here to add a fourth.
