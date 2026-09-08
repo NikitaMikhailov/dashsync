@@ -1,5 +1,9 @@
 # 003 — Homer gets Render only, not the idempotent merge, for now
 
+> Superseded by [007](007-document-adapter.md) once Dashy's shape confirmed
+> Homer's generalizes — this record is kept as-is for the reasoning that
+> led there.
+
 ## Context
 
 M4 adds a second dashboard format specifically to answer the checkpoint
