@@ -58,3 +58,17 @@ renderer-specific fields (M2+: a Homepage widget config, a Homer subtitle,
 - `dashsync.enable=true` on every container that should be visible is one
   more label to remember per service, compared to an opt-out scheme. The
   read-only, multi-host nature of the tool makes that a fair trade.
+- This schema needs no special handling for Docker Swarm — but where a
+  label is written does matter, and it's easy to get wrong. `internal/
+  discovery.Discover` reads labels straight off `ContainerList`'s per-
+  container `Labels` field (a real container's own labels, the same ones
+  `docker inspect` shows), regardless of what created that container.
+  Under `docker stack deploy`, a Compose file's `deploy.labels` are exactly
+  the labels that end up there: they're set on each task's
+  `TaskTemplate.ContainerSpec.Labels`, which becomes that task's
+  container's own labels once it's scheduled — so `dashsync.enable=true`
+  under `deploy.labels` is discovered with zero code changes here. The
+  trap is `docker compose up` *without* Swarm: `deploy:` is ignored
+  entirely outside a stack deploy, so a label placed under `deploy.labels`
+  in that mode never reaches any container at all. A container run this
+  way needs the label under the service's top-level `labels:` key instead.
