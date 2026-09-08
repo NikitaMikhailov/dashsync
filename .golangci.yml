@@ -64,6 +64,9 @@ linters:
             - github.com/NikitaMikhailov/dashsync
             - github.com/spf13/cobra
             - github.com/spf13/pflag
+            - github.com/moby/moby/client # official Docker/Moby API client (M1 discovery)
+            - github.com/moby/moby/api/types/container # container.Summary/PortSummary, part of the client's own API
+            - github.com/google/go-cmp/cmp # table-test diffs, stdlib testing has no equivalent
           deny:
             - pkg: "gopkg.in/yaml.v3"
               desc: "archived (April 2025) and gives no access to the AST/comments — use goccy/go-yaml instead (lands in M3)"
