@@ -16,14 +16,22 @@ construction.
 
 ## Decisions
 
-**Address must be empty or a recognized scheme.** `address` accepts
-`tcp://`, `unix://`, or `ssh://` (matching what `client.WithHost` and
-`$DOCKER_HOST` actually understand), or empty to mean "use the
-environment's own Docker connection." A scheme-less address like
-`10.0.0.6:2376` — valid for `$DOCKER_HOST`, invalid here — is rejected at
-load time instead of silently producing a broken `Host.ResolveURLHost`
-result or an opaque connection failure far from the config line that
-caused it. `npipe` (Windows) is deliberately left out: dashsync doesn't
+**Address must be empty or a recognized scheme — and "recognized" means
+"actually implemented by this project's dependency," not "a scheme Docker
+somewhere accepts."** `address` accepts `tcp://` or `unix://`, or empty to
+mean "use the environment's own Docker connection." `ssh://` is a real,
+documented Docker connection form, but `github.com/moby/moby/client` — the
+SDK this project depends on — doesn't implement SSH transport:
+`client.WithHost` hands an `ssh://` address straight to a plain TCP dialer,
+which fails confusingly instead of tunneling over SSH the way writing
+`ssh://` would reasonably lead someone to expect. Accepting it as valid
+syntax with silently wrong behavior underneath would be worse than
+rejecting it outright, so it's rejected the same way any other unsupported
+scheme is. A scheme-less address like `10.0.0.6:2376` — valid for
+`$DOCKER_HOST`, invalid here — is rejected at load time too, instead of
+silently producing a broken `Host.ResolveURLHost` result or an opaque
+connection failure far from the config line that caused it. `npipe`
+(Windows) is left out for an unrelated, simpler reason: dashsync doesn't
 build for Windows, and there's nothing to protect by allowing a scheme
 that can't be exercised — adding it back is a one-line change the day
 that's no longer true.
@@ -49,10 +57,9 @@ choice:
 1. `tls` with no `address` is rejected — an empty address means "the
    environment's own Docker connection," which never consults this
    config's `tls` block, so the setting would be silently ignored.
-2. `tls` on a `unix://` or `ssh://` address is rejected — neither
-   transport consults `client.WithTLSClientConfig` at all (a unix socket
-   has no TLS layer; SSH authenticates over SSH), so, same as above, the
-   setting would just be silently ignored.
+2. `tls` on a `unix://` address is rejected — a unix socket has no TLS
+   layer, so `client.WithTLSClientConfig` never comes into play, and the
+   setting would just be silently ignored, same as above.
 3. `tls.cert` and `tls.key` must both be set or both be empty — a CA-only
    block (server verification without a client certificate) is valid, but
    a cert without its key (or vice versa) fails deep inside
