@@ -77,3 +77,12 @@ renderer-specific fields (M2+: a Homepage widget config, a Homer subtitle,
   M2), `dashsync.homer.*` (Homer, M4), and `dashsync.dashy.*` (Dashy) — each
   renderer picks its own fields straight out of `Extra` by its own prefix,
   with no changes needed here to add a fourth.
+- Homepage's own prefix has since split into two: `dashsync.homepage.widget.*`
+  still feeds its nested `widget:` block (an app-specific integration like
+  Plex or Uptime Kuma), while a bare `dashsync.homepage.*` label (e.g.
+  `dashsync.homepage.server`, for Homepage's own Docker-stats card — see
+  <https://gethomepage.dev/configs/docker/>) sets a flat field directly on
+  the service, the same unnested shape Homer's convention always used.
+  `widget` is reserved at that flat level precisely because the two share
+  one namespace: nothing else in this schema needed a reserved word before,
+  because nothing else split one renderer's prefix into two shapes.

@@ -1,0 +1,6 @@
+- Websites:
+  - Chainle:
+      container: chainleru-web-1
+      href: https://chainle.ru
+      server: my-docker
+      showStats: "true"

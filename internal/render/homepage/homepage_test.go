@@ -75,6 +75,11 @@ func TestRenderer_Render_Widget(t *testing.T) {
 	// deliberately inserted out of alphabetical order in the map literal —
 	// map construction order can't influence output order in Go, but this
 	// makes clear the test isn't accidentally passing because of it.
+	//
+	// "homer.tag" carries a different format's prefix entirely (as a
+	// dashsync.homer.tag label would produce) — proof extraFields only
+	// ever picks up this renderer's own "homepage." keys, not another
+	// format's, even though both land in the same Service.Extra map.
 	groups := []model.Group{
 		{
 			Name: "Media",
@@ -86,7 +91,7 @@ func TestRenderer_Render_Widget(t *testing.T) {
 						"homepage.widget.url":  "http://10.0.0.5:8096",
 						"homepage.widget.type": "jellyfin",
 						"homepage.widget.key":  "abc123",
-						"homepage.icon":        "should not leak into widget: wrong prefix",
+						"homer.tag":            "should not leak into Homepage's output: wrong format's prefix",
 					},
 				},
 			},
@@ -94,6 +99,119 @@ func TestRenderer_Render_Widget(t *testing.T) {
 	}
 
 	assertGolden(t, "widget.golden.yaml", groups)
+}
+
+func TestRenderer_Render_FlatExtraFields(t *testing.T) {
+	t.Parallel()
+
+	// dashsync.homepage.* labels that aren't under widget. land directly
+	// on the service, unnested — this is what a Docker-stats card needs
+	// (server/container/showStats are siblings of href, not a widget
+	// block; see docs/decisions/001-label-schema.md).
+	groups := []model.Group{
+		{
+			Name: "Websites",
+			Services: []model.Service{
+				{
+					Name: "Chainle",
+					URL:  "https://chainle.ru",
+					Extra: map[string]string{
+						"homepage.server":    "my-docker",
+						"homepage.container": "chainleru-web-1",
+						"homepage.showStats": "true",
+					},
+				},
+			},
+		},
+	}
+
+	assertGolden(t, "flat_extra_fields.golden.yaml", groups)
+}
+
+func TestRenderer_Render_FlatExtraFieldCanOverrideAKnownField(t *testing.T) {
+	t.Parallel()
+
+	// Matches homer.Renderer's precedent: a label wins over any field
+	// dashsync would otherwise have derived on its own — href, icon, and
+	// description alike, no special-casing any of them. Useful when a
+	// service needs, say, a different icon specifically for the Homepage
+	// card. All three are exercised here, not just one: entryFields
+	// assigns them through the identical unconditional "fields[key] =
+	// value" loop, but nothing stops a future change from special-casing
+	// just one of them without the others noticing.
+	groups := []model.Group{
+		{
+			Name: "Media",
+			Services: []model.Service{
+				{
+					Name:        "Jellyfin",
+					URL:         "http://10.0.0.5:8096",
+					Icon:        "jellyfin",
+					Description: "Movies & TV",
+					Extra: map[string]string{
+						"homepage.href":        "http://10.0.0.5:9000",
+						"homepage.icon":        "jellyfin-alt",
+						"homepage.description": "Movies & TV, overridden",
+					},
+				},
+			},
+		},
+	}
+
+	assertGolden(t, "flat_extra_field_override.golden.yaml", groups)
+}
+
+func TestRenderer_Render_WidgetTypoDoesNotLeakAsAFlatField(t *testing.T) {
+	t.Parallel()
+
+	// "homepage.widgetXYZ" is one dropped dot away from a real
+	// "homepage.widget.xyz" widget option. Without an explicit guard,
+	// CutPrefix(key, "homepage.") alone would happily produce the flat
+	// field "widgetXYZ" — a nonsense top-level key nobody meant to write,
+	// silently accepted instead of either becoming the widget option the
+	// label was aiming for or failing loudly.
+	groups := []model.Group{
+		{
+			Name: "Media",
+			Services: []model.Service{
+				{
+					Name: "Jellyfin",
+					Extra: map[string]string{
+						"homepage.widgetXYZ": "should not appear anywhere in the output",
+					},
+				},
+			},
+		},
+	}
+
+	assertGolden(t, "widget_typo_dropped.golden.yaml", groups)
+}
+
+func TestRenderer_Render_BareWidgetExtraKeyDoesNotClobberWidgetBlock(t *testing.T) {
+	t.Parallel()
+
+	// A "dashsync.homepage.widget" label (no further nesting) has suffix
+	// "widget" once "homepage." is stripped — indistinguishable, by
+	// prefix alone, from the reserved "widget" field flatExtraFields
+	// builds from "homepage.widget.*" keys. Without an explicit guard,
+	// map iteration order would nondeterministically decide whether the
+	// real widget block or this stray string wins.
+	groups := []model.Group{
+		{
+			Name: "Media",
+			Services: []model.Service{
+				{
+					Name: "Jellyfin",
+					Extra: map[string]string{
+						"homepage.widget.type": "jellyfin",
+						"homepage.widget":      "should be dropped, not clobber the widget block",
+					},
+				},
+			},
+		},
+	}
+
+	assertGolden(t, "bare_widget_key_dropped.golden.yaml", groups)
 }
 
 func TestRenderer_Render_SingleKeyInvariant(t *testing.T) {
@@ -245,6 +363,67 @@ func TestRenderer_NormalizeEntry_MatchesRenderEntryForUntouchedContent(t *testin
 	}
 	if string(normalized) != string(rendered) {
 		t.Errorf("NormalizeEntry() = %q, want it to match RenderEntry()'s canonical form %q", normalized, rendered)
+	}
+}
+
+func TestRenderer_NormalizeEntry_MatchesRenderEntryForFlatExtraFields(t *testing.T) {
+	t.Parallel()
+
+	// The one existing round-trip test above never exercises a Service
+	// with Extra set, so it never proves flatExtraFields' string values
+	// survive internal/merge's actual comparison path: RenderEntry writes
+	// them, but hand-edit detection re-reads them through NormalizeEntry
+	// (parse -> NodeToValue -> re-marshal) on every later sync. "true" is
+	// deliberately used here, not a normal word: it's the one value most
+	// likely to round-trip as the YAML bool `true` instead of the string
+	// "true" dashsync actually wrote, which would make NormalizeEntry's
+	// output diverge from RenderEntry's and every sync after the first
+	// see a false hand-edit conflict on a field nobody touched.
+	svc := model.Service{
+		Name: "Chainle",
+		URL:  "https://chainle.ru",
+		Extra: map[string]string{
+			"homepage.server":      "my-docker",
+			"homepage.container":   "chainleru-web-1",
+			"homepage.showStats":   "true",
+			"homepage.widget.type": "jellyfin",
+		},
+	}
+
+	rendered, err := New().RenderEntry(svc)
+	if err != nil {
+		t.Fatalf("RenderEntry() error = %v, want nil", err)
+	}
+
+	var nestedText strings.Builder
+	nestedText.WriteString("- Websites:\n")
+	for i, line := range strings.Split(strings.TrimSuffix(string(rendered), "\n"), "\n") {
+		if i == 0 {
+			nestedText.WriteString("    - " + line + "\n")
+		} else {
+			nestedText.WriteString("      " + line + "\n")
+		}
+	}
+
+	f, err := parser.ParseBytes([]byte(nestedText.String()), parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse nested fixture: %v\n%s", err, nestedText.String())
+	}
+	//nolint:forcetypeassert,errcheck // shape is controlled by this test's own fixture above
+	root := f.Docs[0].Body.(*ast.SequenceNode)
+	//nolint:forcetypeassert,errcheck
+	group := root.Values[0].(*ast.MappingNode)
+	//nolint:forcetypeassert,errcheck
+	servicesSeq := group.Values[0].Value.(*ast.SequenceNode)
+	entryNode := servicesSeq.Values[0]
+
+	normalized, err := New().NormalizeEntry(entryNode)
+	if err != nil {
+		t.Fatalf("NormalizeEntry() error = %v, want nil", err)
+	}
+	if string(normalized) != string(rendered) {
+		t.Errorf("NormalizeEntry() = %q, want it to match RenderEntry()'s canonical form %q\n(a mismatch here means a sync would flag this entry as hand-edited forever, even with nothing touched)",
+			normalized, rendered)
 	}
 }
 
