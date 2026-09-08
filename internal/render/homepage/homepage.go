@@ -9,6 +9,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 
+	"github.com/NikitaMikhailov/dashsync/internal/merge"
 	"github.com/NikitaMikhailov/dashsync/internal/model"
 )
 
@@ -56,6 +57,12 @@ func oneEntry[V any](name string, value V) map[string]V {
 
 // Renderer renders dashsync's model as a Homepage services.yaml.
 type Renderer struct{}
+
+// Compile-time check that Renderer satisfies merge.EntryRenderer — today
+// this is also exercised transitively by every merge_test.go call site
+// that passes homepage.New() where an EntryRenderer is expected, but
+// stating it here doesn't depend on tracing through those to see it.
+var _ merge.EntryRenderer = Renderer{}
 
 // New returns a Homepage Renderer.
 func New() Renderer { return Renderer{} }
@@ -128,6 +135,11 @@ func (Renderer) NormalizeEntry(node ast.Node) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// Adapter implements merge.EntryRenderer: Homepage's document shape is a
+// single-key map everywhere (see service/group's own doc comment above),
+// which is exactly what merge.NewHomepageAdapter knows how to walk.
+func (Renderer) Adapter() merge.DocumentAdapter { return merge.NewHomepageAdapter() }
 
 // entryFields builds a service's fields as a generic map — see service's
 // doc comment for why a map instead of a typed struct. Homepage supports

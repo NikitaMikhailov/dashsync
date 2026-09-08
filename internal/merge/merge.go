@@ -90,12 +90,13 @@ type Change struct {
 	Group       string
 }
 
-// EntryRenderer is the one capability Merge needs beyond model.Group: a
-// way to render a single service as a standalone "Name:\n  field:
-// value\n" YAML entry — the granularity managed markers and hand-edit
-// detection operate on, as opposed to render.Renderer.Render's whole
-// document at a time.
+// EntryRenderer is the capability Merge needs beyond model.Group: a way to
+// render a single service as a standalone entry, and a way to locate that
+// entry within its format's own document shape.
 type EntryRenderer interface {
+	// RenderEntry renders one service as a standalone entry — the
+	// granularity managed markers and hand-edit detection operate on, as
+	// opposed to render.Renderer.Render's whole document at a time.
 	RenderEntry(s model.Service) ([]byte, error)
 	// NormalizeEntry re-renders an existing entry node — as read back from
 	// a file — through the same canonical path RenderEntry uses. A node's
@@ -104,6 +105,15 @@ type EntryRenderer interface {
 	// directly against RenderEntry's output would produce false hand-edit
 	// positives on an entry nobody touched.
 	NormalizeEntry(node ast.Node) ([]byte, error)
+	// Adapter returns the DocumentAdapter that knows this format's
+	// document shape — how to locate the list of groups, and a group's own
+	// list of entries, within it. The pairing is intrinsic to the format,
+	// not a caller choice, which is why the renderer itself owns it rather
+	// than Merge taking a separate DocumentAdapter parameter. Merge calls
+	// this exactly once per Merge call, so it must be cheap, side-effect
+	// free, and safe to call repeatedly across different calls — not
+	// something that accumulates state or does meaningful work per call.
+	Adapter() DocumentAdapter
 }
 
 // ConflictError is returned by Merge under ConflictPolicy Fail when a
@@ -136,7 +146,8 @@ func Merge(existing []byte, groups []model.Group, renderer EntryRenderer, opts O
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse existing config: %w", err)
 	}
-	root, err := rootSequence(file)
+	adapter := renderer.Adapter()
+	root, err := adapter.GroupSequence(file)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -155,7 +166,7 @@ func Merge(existing []byte, groups []model.Group, renderer EntryRenderer, opts O
 	var changes []Change
 
 	for _, g := range groups {
-		groupSeq, err := findOrCreateGroupSequence(root, g.Name)
+		groupSeq, err := adapter.FindOrCreateGroup(root, g.Name)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -175,28 +186,15 @@ func Merge(existing []byte, groups []model.Group, renderer EntryRenderer, opts O
 	// Removal pass: every group currently in the file — including ones
 	// with zero desired services left this run — loses any managed entry
 	// whose service ID isn't desired for that exact group anymore.
-	for _, v := range root.Values {
-		mn, ok := v.(*ast.MappingNode)
-		if !ok || len(mn.Values) == 0 {
-			continue
-		}
-		groupName, ok := nodeKeyString(mn.Values[0].Key)
-		if !ok {
-			continue
-		}
-		groupSeq, ok := mn.Values[0].Value.(*ast.SequenceNode)
-		if !ok {
-			continue
-		}
-
-		entries := readEntries(groupSeq)
-		entries, removedChanges := removeOrphaned(entries, groupName, desiredGroupOf)
+	for _, ng := range adapter.Groups(root) {
+		entries := readEntries(ng.Items)
+		entries, removedChanges := removeOrphaned(entries, ng.Name, desiredGroupOf)
 		if len(removedChanges) == 0 {
 			continue
 		}
 		changes = append(changes, removedChanges...)
-		if err := writeEntries(groupSeq, entries); err != nil {
-			return nil, nil, fmt.Errorf("write group %q: %w", groupName, err)
+		if err := writeEntries(ng.Items, entries); err != nil {
+			return nil, nil, fmt.Errorf("write group %q: %w", ng.Name, err)
 		}
 	}
 
