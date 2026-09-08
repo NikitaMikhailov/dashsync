@@ -46,6 +46,8 @@ happens on request, not as running commentary on every commit.
 - `golangci-lint run` — lint
 - `golangci-lint config verify` — validate `.golangci.yml`
 - `go build ./cmd/dashsync` — build
+- `goreleaser release --snapshot --clean --skip=publish` — dry-run a release locally, no tag or publish needed
+- `git tag vX.Y.Z && git push origin vX.Y.Z` — cut a real release (see `docs/decisions/006-release-process.md`)
 
 ## Process
 

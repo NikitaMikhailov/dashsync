@@ -20,12 +20,12 @@ func TestVersionCmd_TextOutput(t *testing.T) {
 		{
 			name: "full metadata",
 			info: buildinfo.Info{Version: "v0.3.0", Commit: "abc1234", Date: "2026-09-07T12:00:00Z"},
-			want: "dashsync v0.3.0\ncommit:  abc1234\nbuilt:   2026-09-07T12:00:00Z\n",
+			want: "dashsync v0.3.0\ncommit:  abc1234\ndate:    2026-09-07T12:00:00Z\n",
 		},
 		{
 			name: "dev build without VCS info",
 			info: buildinfo.Info{Version: "dev"},
-			want: "dashsync dev\ncommit:  unknown\nbuilt:   unknown\n",
+			want: "dashsync dev\ncommit:  unknown\ndate:    unknown\n",
 		},
 	}
 

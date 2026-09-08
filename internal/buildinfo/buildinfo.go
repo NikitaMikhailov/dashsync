@@ -1,5 +1,11 @@
 // Package buildinfo provides version metadata for the running dashsync
-// binary: version number, commit, and build date.
+// binary: version number, commit, and the date of the commit that was
+// built — not when the compiler actually ran. Both sources this package
+// reads from only ever carry a commit's own timestamp: GoReleaser's
+// {{ .CommitDate }} template variable on a release build, and
+// runtime/debug.BuildInfo's "vcs.time" setting on a plain build. Info.Date
+// is named accordingly, and internal/cli's `dashsync version` labels it
+// "date:", not "built:", for the same reason.
 package buildinfo
 
 import (

@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Release engineering for dashsync — see docs/decisions/006-release-process.md
+# for the reasoning behind the choices below (target platforms, versioning,
+# what gets excluded from the changelog).
+
+version: 2
+
+project_name: dashsync
+
+# No `before.hooks: [go mod tidy]` here on purpose (goreleaser init's own
+# default template includes it): mutating go.mod/go.sum immediately before
+# building the artifacts that ship to users, with nothing re-verifying the
+# result, would mean a release could ship built from a dependency graph
+# none of ci.yml's jobs ever tested — and if the hook itself failed for an
+# unrelated reason (a proxy hiccup), the whole release would abort for a
+# cause that has nothing to do with the tagged code. ci.yml's lint job runs
+# `go mod tidy -diff` instead, so drift is caught at PR time by failing
+# loudly, not silently patched over at release time.
+builds:
+  - id: dashsync
+    main: ./cmd/dashsync
+    binary: dashsync
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # Matches internal/buildinfo's own doc comment, which documents this
+    # exact ldflags invocation as the contract between the two: version is
+    # the tag GoReleaser is building (v-prefix stripped further down),
+    # commit and date come from GoReleaser's own git/build introspection so
+    # they're accurate even for `goreleaser build --snapshot` between tags.
+    # Not just the build path but the module cache path too would
+    # otherwise leak into debug info from whichever CI runner happened to
+    # build a given release — trimpath is what keeps two builds of the
+    # same commit reproducible byte-for-byte regardless of where they ran.
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/NikitaMikhailov/dashsync/internal/buildinfo.version={{ .Version }}
+      - -X github.com/NikitaMikhailov/dashsync/internal/buildinfo.commit={{ .ShortCommit }}
+      - -X github.com/NikitaMikhailov/dashsync/internal/buildinfo.date={{ .CommitDate }}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    # Deliberately versionless: GitHub's /releases/latest/download/<name>
+    # alias resolves to whichever release is newest, but only if <name> is
+    # the same on every release — the README's install snippet relies on
+    # that to avoid having to look up a version first. Provenance for a
+    # specific download still comes from checksums.txt (also attached to
+    # every release) and the release page itself, not the filename.
+    #
+    # Arch stays in Go's own terms (amd64/arm64) rather than uname -m's
+    # (x86_64, and — on Linux specifically, unlike macOS — aarch64 rather
+    # than arm64): translating uname's output to GOARCH is the README
+    # snippet's job, done once in the shell rather than baked into a
+    # naming scheme that would otherwise need to special-case Linux/arm64
+    # differently from Darwin/arm64 to match uname at all.
+    name_template: "{{ .ProjectName }}_{{ title .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  use: github
+  # Grouped and filtered to match this project's own Conventional Commits
+  # convention (CLAUDE.md) — a release's changelog should read as "what
+  # changed for a user," not a raw commit log.
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?:'
+      order: 1
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs(\(.+\))?:'
+      - '^chore(\(.+\))?:'
+      - '^test(\(.+\))?:'
+      - "^ci:"
+      - "^Merge "
+
+release:
+  github:
+    owner: NikitaMikhailov
+    name: dashsync
+  # prerelease: auto marks a version with a pre-release suffix (v0.2.0-rc1)
+  # as a GitHub pre-release automatically — dashsync isn't there yet
+  # (every tag so far is a real release), but costs nothing to leave on.
+  prerelease: auto
