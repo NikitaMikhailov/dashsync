@@ -15,14 +15,20 @@ import (
 	"github.com/NikitaMikhailov/dashsync/internal/model"
 	"github.com/NikitaMikhailov/dashsync/internal/render"
 	"github.com/NikitaMikhailov/dashsync/internal/render/homepage"
+	"github.com/NikitaMikhailov/dashsync/internal/render/homer"
 )
 
-// mergeableRenderer is what sync needs from a dashboard format: rendering
-// a whole document (the --output-path-less, stdout-only mode) and the
-// finer-grained per-entry rendering internal/merge needs for the
-// idempotent, file-writing mode. Every renderer dashsync ships is expected
-// to support both — the idempotent merge is the entire reason this project
-// exists, not an optional extra a future format could skip.
+// mergeableRenderer is additionally implemented by a render.Renderer that
+// supports internal/merge's idempotent, file-writing mode: it needs the
+// finer-grained per-entry rendering (and, implicitly, a document shape
+// Merge knows how to walk) that plain whole-document Render doesn't
+// provide. Not every renderer manages this yet: Homer's config.yml nests
+// its managed section under a
+// "services:" key alongside a great deal of unrelated hand-configured
+// settings, and identifies groups and items by a "name" field rather
+// than Homepage's single-key-map shape — internal/merge, built against
+// Homepage's shape first, doesn't generalize to that yet. See
+// docs/decisions/003-homer-render-only.md.
 type mergeableRenderer interface {
 	render.Renderer
 	merge.EntryRenderer
@@ -31,8 +37,9 @@ type mergeableRenderer interface {
 // newSyncCmd builds the `sync` subcommand. discover supplies the
 // discovered services, same injection pattern as inspect and version.
 func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Service, error)) *cobra.Command {
-	renderers := map[string]mergeableRenderer{
+	renderers := map[string]render.Renderer{
 		"homepage": homepage.New(),
+		"homer":    homer.New(),
 	}
 
 	var format, hostAddr, outputPath, conflict string
@@ -45,7 +52,9 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Ser
 			"Without --output-path, it just prints the result to stdout — pipe or\n" +
 			"redirect it yourself. With --output-path, it idempotently merges the result\n" +
 			"into that file: new services are added, changed ones are updated, ones that\n" +
-			"disappeared are removed, and anything you wrote by hand is left alone.",
+			"disappeared are removed, and anything you wrote by hand is left alone.\n\n" +
+			"Not every --format supports --output-path yet — a format that doesn't will\n" +
+			"say so and exit before touching anything.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -58,14 +67,12 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Ser
 				return err
 			}
 
-			services, err := discover(cmd.Context(), hostAddr)
-			if err != nil {
-				return err
-			}
-			groups := model.GroupServices(services)
-
 			if outputPath == "" {
-				out, err := renderer.Render(groups)
+				services, err := discover(cmd.Context(), hostAddr)
+				if err != nil {
+					return err
+				}
+				out, err := renderer.Render(model.GroupServices(services))
 				if err != nil {
 					return err
 				}
@@ -73,12 +80,29 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Ser
 				return err
 			}
 
+			// Checked before discover() runs: format and --output-path are
+			// both known already, so a mismatch between them is reported
+			// without first paying for a Docker round-trip that has
+			// nothing to do with the actual problem.
+			mr, ok := renderer.(mergeableRenderer)
+			if !ok {
+				return fmt.Errorf(
+					"--format %q doesn't support --output-path yet (no idempotent merge implemented for it) — "+
+						"omit --output-path to print to stdout instead", format)
+			}
+
+			services, err := discover(cmd.Context(), hostAddr)
+			if err != nil {
+				return err
+			}
+			groups := model.GroupServices(services)
+
 			existing, err := readIfExists(outputPath)
 			if err != nil {
 				return err
 			}
 
-			merged, changes, err := merge.Merge(existing, groups, renderer, merge.Options{Conflict: conflictPolicy})
+			merged, changes, err := merge.Merge(existing, groups, mr, merge.Options{Conflict: conflictPolicy})
 			if err != nil {
 				return err
 			}
@@ -112,7 +136,7 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr string) ([]model.Ser
 // formatNames lists a renderers map's keys, sorted, for an error message —
 // map iteration order is unspecified, and an error that reads differently
 // on every run is its own small usability bug.
-func formatNames(renderers map[string]mergeableRenderer) []string {
+func formatNames(renderers map[string]render.Renderer) []string {
 	names := make([]string, 0, len(renderers))
 	for name := range renderers {
 		names = append(names, name)

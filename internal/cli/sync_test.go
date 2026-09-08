@@ -99,6 +99,67 @@ func serviceKeys(services []map[string]any) []string {
 	return names
 }
 
+func TestSyncCmd_RendersHomerToStdout(t *testing.T) {
+	t.Parallel()
+
+	services := []model.Service{{Name: "Jellyfin", Group: "Media", URL: "http://10.0.0.5:8096"}}
+
+	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--format", "homer"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil", err)
+	}
+
+	// Decode structurally, same as TestSyncCmd_GroupsBeforeRendering above:
+	// a substring check on "name: Jellyfin" would also pass for a
+	// duplicated group, a missing "services:" wrapper, or arbitrary noise
+	// around that one line, and wouldn't even confirm the output parses.
+	var decoded struct {
+		Services []struct {
+			Name  string           `yaml:"name"`
+			Items []map[string]any `yaml:"items"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+		t.Fatalf("stdout did not parse as YAML: %v\nstdout:\n%s", err, stdout.String())
+	}
+
+	if len(decoded.Services) != 1 || decoded.Services[0].Name != "Media" {
+		t.Fatalf("decoded = %+v, want one group named Media", decoded)
+	}
+	want := []map[string]any{{"name": "Jellyfin", "url": "http://10.0.0.5:8096"}}
+	if diff := cmp.Diff(want, decoded.Services[0].Items); diff != "" {
+		t.Errorf("items mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestSyncCmd_HomerRejectsOutputPath(t *testing.T) {
+	t.Parallel()
+
+	// Homer only implements render.Renderer, not the idempotent-merge
+	// mergeableRenderer — see docs/decisions/003-homer-render-only.md.
+	// --output-path must fail clearly rather than panic on a failed type
+	// assertion or silently fall back to some other behavior.
+	path := filepath.Join(t.TempDir(), "config.yml")
+	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return nil, nil })
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--format", "homer", "--output-path", path})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() = nil, want an error — homer doesn't support --output-path yet")
+	}
+	if !strings.Contains(err.Error(), "homer") || !strings.Contains(err.Error(), "--output-path") {
+		t.Errorf("error = %q, want it to name the format and the flag", err.Error())
+	}
+	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Error("no file should have been created")
+	}
+}
+
 func TestSyncCmd_UnknownFormat(t *testing.T) {
 	t.Parallel()
 

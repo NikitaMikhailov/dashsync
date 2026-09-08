@@ -1,0 +1,4 @@
+services:
+- name: Other
+  items:
+  - name: internal-svc

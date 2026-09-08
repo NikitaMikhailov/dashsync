@@ -1,0 +1,13 @@
+services:
+- name: Media
+  items:
+  - icon: jellyfin
+    name: Jellyfin
+    subtitle: Movies & TV
+    url: http://10.0.0.5:8096
+  - name: Sonarr
+    url: http://10.0.0.5:8989
+- name: Network
+  items:
+  - name: AdGuard Home
+    url: http://10.0.0.5:3000
