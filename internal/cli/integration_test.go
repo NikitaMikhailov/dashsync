@@ -169,7 +169,11 @@ func runSync(t *testing.T, path string) (output string, exitCode int) {
 	t.Helper()
 
 	var stdout, stderr bytes.Buffer
-	code := cli.Run([]string{"sync", "--output-path", path, "--host-addr", "127.0.0.1"}, &stdout, &stderr)
+	// --dry-run=false explicitly: sync's own default is CI-env-aware (see
+	// newSyncCmd), and this test runs as part of CI — a real write is
+	// exactly what's under test here, not the safer default a human
+	// forgetting the flag on a real cron job benefits from.
+	code := cli.Run([]string{"sync", "--output-path", path, "--host-addr", "127.0.0.1", "--dry-run=false"}, &stdout, &stderr)
 	if stderr.Len() > 0 {
 		t.Logf("stderr: %s", stderr.String())
 	}

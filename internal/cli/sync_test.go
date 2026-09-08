@@ -137,7 +137,7 @@ func TestSyncCmd_OutputPath_WritesFile(t *testing.T) {
 	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"--output-path", path})
+	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() = %v, want nil", err)
@@ -175,7 +175,7 @@ func TestSyncCmd_OutputPath_PreservesExistingFilePermissions(t *testing.T) {
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
 	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
 	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--output-path", path})
+	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() = %v, want nil", err)
@@ -206,7 +206,7 @@ func TestSyncCmd_OutputPath_NewFileGetsReadableDefaultPermissions(t *testing.T) 
 
 	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
 	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--output-path", path})
+	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() = %v, want nil", err)
@@ -258,7 +258,7 @@ func TestSyncCmd_OutputPath_MergesAndBacksUpExistingFile(t *testing.T) {
 	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
 	cmd := newSyncCmd(func(context.Context, string) ([]model.Service, error) { return services, nil })
 	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--output-path", path})
+	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() = %v, want nil", err)
