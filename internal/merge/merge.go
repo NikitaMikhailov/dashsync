@@ -142,12 +142,20 @@ func (e *ConflictError) Error() string {
 // group, new services are likewise appended after whatever's already
 // there.
 func Merge(existing []byte, groups []model.Group, renderer EntryRenderer, opts Options) ([]byte, []Change, error) {
+	// Computed from existing itself, before parseOrEmpty folds "no file
+	// yet" and "a file that happens to parse to an empty structure" into
+	// the same bytes — GroupSequence needs the real answer, not one
+	// re-inferred from parsed shape after that information is already
+	// gone. See DocumentAdapter.GroupSequence's own doc comment for why
+	// re-inferring it is unsafe for a foreign-nested shape.
+	isNewDocument := len(bytes.TrimSpace(existing)) == 0
+
 	file, err := parseOrEmpty(existing)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse existing config: %w", err)
 	}
 	adapter := renderer.Adapter()
-	root, err := adapter.GroupSequence(file)
+	root, err := adapter.GroupSequence(file, isNewDocument)
 	if err != nil {
 		return nil, nil, err
 	}

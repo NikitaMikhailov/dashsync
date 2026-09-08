@@ -169,51 +169,105 @@ func TestSyncCmd_RendersDashyToStdout(t *testing.T) {
 	}
 }
 
-func TestSyncCmd_DashyRejectsOutputPath(t *testing.T) {
+func TestSyncCmd_DashyOutputPath_WritesAndIsIdempotent(t *testing.T) {
 	t.Parallel()
 
-	// Dashy only implements render.Renderer, not the idempotent-merge
-	// mergeableRenderer yet — see docs/decisions/007-document-adapter.md.
-	// --output-path must fail clearly rather than panic on a failed type
-	// assertion or silently fall back to some other behavior.
+	// Dashy gained merge.EntryRenderer support via NamedGroupAdapter (see
+	// docs/decisions/007-document-adapter.md) — --output-path now works,
+	// matching Homepage's existing behavior, not the error it used to
+	// return.
 	path := filepath.Join(t.TempDir(), "conf.yml")
-	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--format", "dashy", "--output-path", path})
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+	discover := func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil }
 
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() = nil, want an error — dashy doesn't support --output-path yet")
+	cmd := newSyncCmd(discover)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--format", "dashy", "--output-path", path, "--dry-run=false"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil", err)
 	}
-	if !strings.Contains(err.Error(), "dashy") || !strings.Contains(err.Error(), "--output-path") {
-		t.Errorf("error = %q, want it to name the format and the flag", err.Error())
+
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("sync did not create %s: %v", path, err)
 	}
-	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
-		t.Error("no file should have been created")
+	if !strings.Contains(string(first), "Jellyfin") || !strings.Contains(string(first), "sections:") {
+		t.Errorf("written file = %q, want a Dashy-shaped sections list containing Jellyfin", first)
+	}
+	if !strings.Contains(stdout.String(), "added") {
+		t.Errorf("stdout = %q, want a change summary mentioning \"added\"", stdout.String())
+	}
+
+	// Second run against unchanged Docker state: no changes reported, byte-
+	// identical file.
+	cmd2 := newSyncCmd(discover)
+	var stdout2 bytes.Buffer
+	cmd2.SetOut(&stdout2)
+	cmd2.SetArgs([]string{"--format", "dashy", "--output-path", path, "--dry-run=false"})
+	if err := cmd2.Execute(); err != nil {
+		t.Fatalf("second Execute() = %v, want nil", err)
+	}
+	second, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s after second run: %v", path, err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("second run changed the file:\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+	if strings.Contains(stdout2.String(), "added") || strings.Contains(stdout2.String(), "updated") {
+		t.Errorf("stdout on unchanged input = %q, want no changes reported", stdout2.String())
 	}
 }
 
-func TestSyncCmd_HomerRejectsOutputPath(t *testing.T) {
+func TestSyncCmd_HomerOutputPath_WritesAndIsIdempotent(t *testing.T) {
 	t.Parallel()
 
-	// Homer only implements render.Renderer, not the idempotent-merge
-	// mergeableRenderer — see docs/decisions/003-homer-render-only.md.
-	// --output-path must fail clearly rather than panic on a failed type
-	// assertion or silently fall back to some other behavior.
+	// Homer gained merge.EntryRenderer support via NamedGroupAdapter (see
+	// docs/decisions/007-document-adapter.md) — --output-path now works,
+	// matching Homepage's existing behavior, not the error it used to
+	// return.
 	path := filepath.Join(t.TempDir(), "config.yml")
-	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--format", "homer", "--output-path", path})
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+	discover := func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil }
 
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() = nil, want an error — homer doesn't support --output-path yet")
+	cmd := newSyncCmd(discover)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--format", "homer", "--output-path", path, "--dry-run=false"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil", err)
 	}
-	if !strings.Contains(err.Error(), "homer") || !strings.Contains(err.Error(), "--output-path") {
-		t.Errorf("error = %q, want it to name the format and the flag", err.Error())
+
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("sync did not create %s: %v", path, err)
 	}
-	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
-		t.Error("no file should have been created")
+	if !strings.Contains(string(first), "Jellyfin") || !strings.Contains(string(first), "services:") {
+		t.Errorf("written file = %q, want a Homer-shaped services list containing Jellyfin", first)
+	}
+	if !strings.Contains(stdout.String(), "added") {
+		t.Errorf("stdout = %q, want a change summary mentioning \"added\"", stdout.String())
+	}
+
+	// Second run against unchanged Docker state: no changes reported, byte-
+	// identical file.
+	cmd2 := newSyncCmd(discover)
+	var stdout2 bytes.Buffer
+	cmd2.SetOut(&stdout2)
+	cmd2.SetArgs([]string{"--format", "homer", "--output-path", path, "--dry-run=false"})
+	if err := cmd2.Execute(); err != nil {
+		t.Fatalf("second Execute() = %v, want nil", err)
+	}
+	second, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s after second run: %v", path, err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("second run changed the file:\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+	if strings.Contains(stdout2.String(), "added") || strings.Contains(stdout2.String(), "updated") {
+		t.Errorf("stdout on unchanged input = %q, want no changes reported", stdout2.String())
 	}
 }
 

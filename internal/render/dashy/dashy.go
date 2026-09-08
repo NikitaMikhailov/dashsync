@@ -1,9 +1,10 @@
 // Package dashy renders dashsync's model into a Dashy
 // (github.com/Lissy93/dashy) conf.yml.
 //
-// Render-only for now, like homer.Renderer — see
-// docs/decisions/007-document-adapter.md for the plan to give this format
-// (and Homer) full idempotent merge support.
+// Dashy's managed content ("sections:") lives nested amid otherwise-foreign
+// hand-configured settings (pageInfo, appConfig, pages, ...) — the same
+// shape family as Homer's, walked by the same merge.NewNamedGroupAdapter;
+// see docs/decisions/007-document-adapter.md.
 package dashy
 
 import (
@@ -11,7 +12,9 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
 
+	"github.com/NikitaMikhailov/dashsync/internal/merge"
 	"github.com/NikitaMikhailov/dashsync/internal/model"
 )
 
@@ -53,6 +56,9 @@ type item map[string]any
 // Renderer renders dashsync's model as a Dashy conf.yml sections list.
 type Renderer struct{}
 
+// Compile-time check that Renderer satisfies merge.EntryRenderer.
+var _ merge.EntryRenderer = Renderer{}
+
 // New returns a Dashy Renderer.
 func New() Renderer { return Renderer{} }
 
@@ -81,6 +87,42 @@ func (Renderer) Render(groups []model.Group) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// RenderEntry implements merge.EntryRenderer: it renders one service as a
+// standalone Dashy item entry, the granularity dashsync's idempotent merge
+// (internal/merge) needs for inserting, updating, and hand-edit-detecting
+// individual entries without touching the rest of an existing file.
+func (Renderer) RenderEntry(s model.Service) ([]byte, error) {
+	out, err := yaml.MarshalWithOptions(itemFields(s), yamlOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("render dashy entry for %q: %w", s.Name, err)
+	}
+	return out, nil
+}
+
+// NormalizeEntry implements merge.EntryRenderer: it decodes node — an
+// existing entry as read back from a file — into the same generic shape
+// RenderEntry builds, then re-renders it through the exact same encoder
+// call. See homepage.Renderer's own NormalizeEntry doc comment for why
+// this (rather than node.String()) is necessary, and why item is
+// map[string]any rather than a typed struct — the same reasoning applies
+// here unchanged.
+func (Renderer) NormalizeEntry(node ast.Node) ([]byte, error) {
+	var decoded map[string]any
+	if err := yaml.NodeToValue(node, &decoded); err != nil {
+		return nil, fmt.Errorf("normalize existing dashy entry: %w", err)
+	}
+	out, err := yaml.MarshalWithOptions(decoded, yamlOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("normalize existing dashy entry: %w", err)
+	}
+	return out, nil
+}
+
+// Adapter implements merge.EntryRenderer: Dashy's document shape (see this
+// package's own doc comment) is exactly what merge.NewNamedGroupAdapter
+// knows how to walk.
+func (Renderer) Adapter() merge.DocumentAdapter { return merge.NewNamedGroupAdapter("sections") }
 
 // itemFields builds one service's Dashy item fields. "title" is always
 // present — Dashy identifies an item by this field (not "name", the one
