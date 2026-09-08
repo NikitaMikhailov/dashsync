@@ -19,6 +19,16 @@ import (
 // widget: {type: jellyfin}.
 const widgetLabelPrefix = "homepage.widget."
 
+// homepageLabelPrefix keys — other than ones starting with "widget", which
+// land in the nested widget block instead (see widgetLabelPrefix) — set
+// fields directly on the service, the same flat mechanism homer.Renderer
+// uses throughout: "dashsync.homepage.container=jellyfin" becomes the
+// field "container: jellyfin". This is what a Docker-stats card needs:
+// Homepage's own "server"/"container"/"showStats" fields are siblings of
+// href, not part of widget (see https://gethomepage.dev/configs/docker/),
+// so there's no way to reach them through widgetLabelPrefix alone.
+const homepageLabelPrefix = "homepage."
+
 // service and group are the single-key-map shape every list item in
 // Homepage's config format uses: a service named by its one key, a group
 // the same way one level up. A one-entry map carries no ordering
@@ -162,6 +172,9 @@ func entryFields(s model.Service) map[string]any {
 	if widget := widgetFields(s.Extra); widget != nil {
 		fields["widget"] = widget
 	}
+	for key, value := range flatExtraFields(s.Extra) {
+		fields[key] = value
+	}
 	return fields
 }
 
@@ -204,4 +217,37 @@ func widgetFields(extra map[string]string) map[string]string {
 		widget[suffix] = value
 	}
 	return widget
+}
+
+// flatExtraFields picks "homepage.*" keys out of extra — other than ones
+// widgetFields already owns — and returns them keyed by whatever follows
+// the prefix: "homepage.container" becomes the field "container".
+//
+// "widget" is a fully reserved word at this flat level, not just the exact
+// key "homepage.widget": any suffix starting with "widget" is dropped,
+// including a mistyped "homepage.widgetXYZ" (a dropped dot away from a
+// real "homepage.widget.xyz" widget option). Without that, such a typo
+// would silently produce a meaningless top-level field instead of either
+// the widget option the label was aiming for or a clear failure — and a
+// bare "homepage.widget" specifically would collide with the reserved
+// "widget" key widgetFields' own map lives under, making the winner
+// depend on Go's unspecified map iteration order.
+//
+// Matches homer.extraFields' precedent: labels win if present, "icon"
+// included — there's no special-casing to stop a dashsync.homepage.*
+// label from overriding a field entryFields would otherwise have set on
+// its own.
+func flatExtraFields(extra map[string]string) map[string]any {
+	var fields map[string]any
+	for key, value := range extra {
+		suffix, ok := strings.CutPrefix(key, homepageLabelPrefix)
+		if !ok || suffix == "" || strings.HasPrefix(suffix, "widget") {
+			continue
+		}
+		if fields == nil {
+			fields = make(map[string]any)
+		}
+		fields[suffix] = value
+	}
+	return fields
 }

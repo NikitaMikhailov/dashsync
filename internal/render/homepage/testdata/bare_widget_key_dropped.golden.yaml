@@ -1,0 +1,4 @@
+- Media:
+  - Jellyfin:
+      widget:
+        type: jellyfin
