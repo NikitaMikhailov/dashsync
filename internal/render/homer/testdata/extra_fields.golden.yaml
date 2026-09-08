@@ -1,0 +1,7 @@
+services:
+- name: Network
+  items:
+  - name: Pi-hole
+    tag: dns
+    type: PiHole
+    url: http://10.0.0.5:80/admin
