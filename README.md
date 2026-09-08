@@ -1,13 +1,15 @@
 # dashsync
 
 A CLI tool that turns running Docker containers into static config files for
-self-hosted dashboards — [Homepage](https://gethomepage.dev) and
-[Homer](https://github.com/bastienwirtz/homer) today, Dashy planned — syncs
-them idempotently, and doesn't clobber whatever you edited by hand.
+self-hosted dashboards — [Homepage](https://gethomepage.dev),
+[Homer](https://github.com/bastienwirtz/homer), and
+[Dashy](https://dashy.to) — syncs them idempotently, and doesn't clobber
+whatever you edited by hand.
 
 > **Status: pre-1.0, functional.** Docker label discovery works, single- or
-> multi-host. Homepage gets the full idempotent merge; Homer is render-only
-> for now (see [docs/decisions/003](docs/decisions/003-homer-render-only.md)).
+> multi-host. All three formats — Homepage, Homer, and Dashy — get the full
+> idempotent merge (see
+> [docs/decisions/007](docs/decisions/007-document-adapter.md)).
 
 ## Why this exists
 
@@ -78,8 +80,11 @@ dashsync sync
 # managed entries; anything you wrote by hand is left alone.
 dashsync sync --output-path services.yaml
 
-# A second dashboard format.
-dashsync sync --format homer
+# Homer and Dashy support the same idempotent merge, into their own
+# formats (config.yml and conf.yml are each format's own conventional
+# filename — --output-path accepts any path).
+dashsync sync --format homer --output-path config.yml
+dashsync sync --format dashy --output-path conf.yml
 ```
 
 A container opts in with `dashsync.enable=true`; see
@@ -88,6 +93,47 @@ contract. For discovery across more than one Docker host (TCP, TLS, a
 non-default socket), point `--config` at a `dashsync.yaml` describing them
 — see [docs/decisions/004](docs/decisions/004-multi-host-config-schema.md)
 for its schema; every subcommand's `--help` has the full flag list.
+
+## Typical workflow
+
+`dashsync` has no git integration of its own — it just writes a plain
+file, and that file happens to live in a directory you already keep in
+git. That's the entire mechanism:
+
+```bash
+# Added a container, want the dashboard to catch up.
+$ dashsync sync --output-path services.yaml
++ Media: Jellyfin (added)
+1 change(s): 1 added, 0 updated, 0 removed, 0 conflict(s)
+
+$ git diff services.yaml
++    # dashsync:managed id=4a0a65f45558 content=6ac06496
++    - Jellyfin:
++        href: http://10.0.0.5:8096
+
+$ git add services.yaml && git commit -m "dashboard: add Jellyfin" && git push
+```
+
+From there it's an ordinary commit, reviewed and rolled back the same way
+as any other config change — `dashsync` doesn't know or care that git is
+involved. Two common ways to trigger the `sync` step itself:
+
+- **By hand**, right after adding or changing a container — enough for a
+  small setup.
+- **On a schedule** (cron, a systemd timer), once "did anyone remember to
+  run sync" becomes a real question. A run that finds no changes exits
+  quietly; one that finds changes can auto-commit (fine for a low-stakes
+  personal setup) or open a pull request for a human to review before it
+  ships — worth it once a service silently disappearing from the
+  dashboard is something you'd want to catch before it goes live, not
+  after. `--dry-run` defaults to true whenever `$CI` is set, so a
+  scheduled job meant to actually write needs `--dry-run=false` — an
+  automation shell that happens to export `$CI` for unrelated reasons
+  will otherwise print a change summary and write nothing.
+
+Either way, the dashboard itself only ever reads the rendered file off
+disk — it never talks to Docker and doesn't care whether `dashsync` or a
+human wrote what it's looking at.
 
 ## Development
 
