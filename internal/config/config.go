@@ -14,26 +14,30 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// validAddressSchemes are the URL schemes client.WithHost (and, in
-// practice, $DOCKER_HOST) accept on the platforms dashsync actually builds
-// for (linux, darwin — see .github/workflows/ci.yml). npipe, Windows' named
-// pipe transport, is deliberately not here: there's no Windows build to
-// exercise it against, and adding it back the day that changes costs one
-// line, not a redesign.
+// validAddressSchemes are the URL schemes an address may use. Only tcp and
+// unix are here — not because those are the only schemes Docker's own CLI
+// or $DOCKER_HOST ever accept (ssh:// is a real, documented Docker
+// connection form), but because the underlying client library this
+// project depends on, github.com/moby/moby/client, doesn't actually
+// implement SSH transport: client.WithHost passes an ssh:// address
+// straight to a plain TCP dialer (see sockets.ConfigureTransport's default
+// case), which fails confusingly instead of tunneling over SSH the way a
+// user who wrote ssh:// would reasonably expect. Advertising ssh:// as
+// supported here would be worse than not mentioning it at all — accepted
+// syntax with silently wrong behavior underneath it, only found through a
+// working session that reviewed this exact question against the vendored
+// dependency's source. It can come back the day dashsync depends on
+// something that actually tunnels over SSH (docker/cli's own
+// connhelper/ssh package is the reference implementation, but pulling it
+// in is a dependency discussion of its own, not a one-line addition).
+//
+// npipe, Windows' named pipe transport, is excluded for an unrelated,
+// simpler reason: there's no Windows build to exercise it against (see
+// .github/workflows/ci.yml) — that one really is a one-line addition once
+// that changes.
 var validAddressSchemes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table, never mutated
 	"tcp":  true,
 	"unix": true,
-	"ssh":  true,
-}
-
-// tlsIneffectiveSchemes are address schemes whose connection never
-// consults client.WithTLSClientConfig at all: a unix socket has no TLS
-// layer, and an ssh:// connection authenticates over SSH instead. A tls:
-// block set alongside either would be silently ignored rather than doing
-// what it looks like it does.
-var tlsIneffectiveSchemes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table, never mutated
-	"unix": true,
-	"ssh":  true,
 }
 
 // TLS holds the client certificate material for a TCP+TLS Docker
@@ -119,8 +123,7 @@ func addressScheme(address string) (scheme, canonical string, err error) {
 		return "", "", fmt.Errorf("invalid address %q: %w", address, err)
 	}
 	if !validAddressSchemes[u.Scheme] {
-		return "", "", fmt.Errorf("invalid address %q: unsupported scheme %q, want tcp://, unix://, or ssh://",
-			address, u.Scheme)
+		return "", "", fmt.Errorf("invalid address %q: unsupported scheme %q, want tcp:// or unix://", address, u.Scheme)
 	}
 	canonical = strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimSuffix(u.Path, "/")
 	return u.Scheme, canonical, nil
@@ -221,8 +224,8 @@ func (c Config) validate() error {
 					"hosts[%d] (%q): tls has no effect without an explicit address "+
 						"(an empty address means the environment's own Docker connection, "+
 						"which doesn't consult this config's tls settings)", i, h.Name)
-			case tlsIneffectiveSchemes[scheme]:
-				return fmt.Errorf("hosts[%d] (%q): tls has no effect on a %s:// address", i, h.Name, scheme)
+			case scheme == "unix":
+				return fmt.Errorf("hosts[%d] (%q): tls has no effect on a unix socket address", i, h.Name)
 			case (h.TLS.Cert == "") != (h.TLS.Key == ""):
 				return fmt.Errorf("hosts[%d] (%q): tls.cert and tls.key must both be set or both left empty", i, h.Name)
 			}
