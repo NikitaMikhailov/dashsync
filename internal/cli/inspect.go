@@ -14,11 +14,12 @@ import (
 )
 
 // newInspectCmd builds the `inspect` subcommand. discover supplies the
-// discovered services; the real tree wires in a function that connects to
-// Docker (see discoverDocker in root.go), tests wire in a fixed result —
-// the same injection pattern newVersionCmd uses for buildinfo.Info.
-func newInspectCmd(discover func(ctx context.Context, hostAddr string) ([]model.Service, error)) *cobra.Command {
-	var output, hostAddr string
+// discovered services and any non-fatal per-host warnings; the real tree
+// wires in a function that connects to Docker (see discoverDocker in
+// root.go), tests wire in a fixed result — the same injection pattern
+// newVersionCmd uses for buildinfo.Info.
+func newInspectCmd(discover func(ctx context.Context, hostAddr, configPath string) ([]model.Service, []error, error)) *cobra.Command {
+	var output, hostAddr, configPath string
 
 	cmd := &cobra.Command{
 		Use:           "inspect",
@@ -26,7 +27,8 @@ func newInspectCmd(discover func(ctx context.Context, hostAddr string) ([]model.
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			services, err := discover(cmd.Context(), hostAddr)
+			services, warnings, err := discover(cmd.Context(), hostAddr, configPath)
+			printWarnings(cmd.ErrOrStderr(), warnings)
 			if err != nil {
 				return err
 			}
@@ -44,6 +46,7 @@ func newInspectCmd(discover func(ctx context.Context, hostAddr string) ([]model.
 
 	cmd.Flags().StringVar(&output, "output", "table", `output format: "table" or "json"`)
 	addHostAddrFlag(cmd, &hostAddr)
+	addConfigFlag(cmd, &configPath)
 
 	return cmd
 }

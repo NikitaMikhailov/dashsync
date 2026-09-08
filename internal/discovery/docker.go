@@ -42,9 +42,40 @@ type Host struct {
 // is tested exhaustively applies here too. It's covered by manually running
 // `dashsync inspect` against a real daemon instead.
 func NewDockerClient() (*client.Client, error) {
-	c, err := client.New(client.FromEnv)
+	return NewDockerClientForHost("", "", "", "")
+}
+
+// NewDockerClientForHost connects to the Docker daemon at address, or to
+// the standard environment variables (same resolution as NewDockerClient)
+// if address is empty — the same "empty means use the environment"
+// contract config.Host.Address documents. tlsCA/tlsCert/tlsKey are ignored
+// when address is empty: an explicit address is what makes an explicit
+// TLS configuration meaningful in the first place (see
+// docs/decisions/004-multi-host-config-schema.md).
+//
+// Unlike NewDockerClient, this does have real branches — empty vs. explicit
+// address, and TLS vs. no TLS — and client.New doesn't dial anything, so
+// they're each unit-tested (via the resulting client's own DaemonHost(),
+// and via a deliberately-bad TLS file path) without needing a real daemon.
+// What isn't covered here is whether a *client.Client built this way can
+// actually talk to a real Docker API — that's what the real-Docker
+// integration tests are for.
+func NewDockerClientForHost(address, tlsCA, tlsCert, tlsKey string) (*client.Client, error) {
+	if address == "" {
+		c, err := client.New(client.FromEnv)
+		if err != nil {
+			return nil, fmt.Errorf("connect to docker: %w", err)
+		}
+		return c, nil
+	}
+
+	opts := []client.Opt{client.WithHost(address)}
+	if tlsCA != "" || tlsCert != "" || tlsKey != "" {
+		opts = append(opts, client.WithTLSClientConfig(tlsCA, tlsCert, tlsKey))
+	}
+	c, err := client.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("connect to docker: %w", err)
+		return nil, fmt.Errorf("connect to docker host %q: %w", address, err)
 	}
 	return c, nil
 }
@@ -84,6 +115,16 @@ func Discover(ctx context.Context, host Host, hostAddr string) ([]model.Service,
 		services = append(services, svc)
 	}
 
+	SortServices(services)
+	return services, nil
+}
+
+// SortServices sorts services by (Group, Name, ID) in place. Discover uses
+// it to make one host's result deterministic; DiscoverAll's caller uses the
+// same function to re-sort after concatenating several already-sorted
+// per-host results, since concatenation alone doesn't interleave them into
+// one globally sorted order.
+func SortServices(services []model.Service) {
 	slices.SortFunc(services, func(a, b model.Service) int {
 		if c := cmp.Compare(a.Group, b.Group); c != 0 {
 			return c
@@ -93,8 +134,6 @@ func Discover(ctx context.Context, host Host, hostAddr string) ([]model.Service,
 		}
 		return cmp.Compare(a.ID, b.ID)
 	})
-
-	return services, nil
 }
 
 // containerName returns a container's primary name with Docker's leading
