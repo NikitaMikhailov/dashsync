@@ -130,6 +130,27 @@ which turns it into an entry dashsync no longer considers its own.
   original. dashsync's own output always quotes such names (`"123":`), so
   this only bites a *pre-existing*, hand-authored file with an unquoted
   ambiguous name — a narrow but real gap.
+- **A marker comment inside a flow-style items list isn't recognized as a
+  marker.** `readEntries`'s comment extraction (`seqEntry`, `ast.go`) is
+  built against block-style sequences, where a comment token cleanly
+  precedes its entry. A human (or a YAML auto-formatter set to flow style)
+  can legally collapse an items list dashsync already manages into flow
+  style while leaving the marker comment physically present inside the
+  brackets — `items: [{# dashsync:managed id=... content=...\n name:
+  Jellyfin, url: http://x}]` parses, but the comment attaches to the
+  nested mapping's own first key instead of surfacing where
+  `findManagedIndex` looks for it. The next update to that service finds
+  no existing marker, appends a brand-new entry with a fresh one, and the
+  original — now permanently unmarked — becomes inert duplicate content
+  dashsync no longer manages or ever removes. Found via the same review
+  that produced ADR 007's flow-style fixes, and confirmed pre-existing
+  (reproduces against `homepageAdapter` unmodified, not something
+  `NamedGroupAdapter` introduced). Distinct from — and not fixed by —
+  ADR 007's `normalizeGroupsListStyle`/`normalizeMappingFlowStyle`, which
+  only normalize a *container* about to receive new content; this is about
+  a comment already inside one dashsync doesn't yet know how to read back
+  out. No workaround short of not hand-collapsing a managed items list to
+  flow style in the first place.
 - **No cross-process locking.** Two `sync --output-path` invocations
   against the same file, overlapping in time (two cron schedules, a CI
   matrix sharing a path), can each read the same starting content,

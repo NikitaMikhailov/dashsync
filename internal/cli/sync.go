@@ -22,15 +22,13 @@ import (
 // mergeableRenderer is additionally implemented by a render.Renderer that
 // supports internal/merge's idempotent, file-writing mode: it needs the
 // finer-grained per-entry rendering (and, implicitly, a document shape
-// Merge knows how to walk) that plain whole-document Render doesn't
-// provide. Not every renderer manages this yet: Homer's and Dashy's config
-// files each nest their managed section (Homer's "services:", Dashy's
-// "sections:") under a key alongside a great deal of unrelated
-// hand-configured settings, and identify groups by a "name" field rather
-// than Homepage's single-key-map shape — internal/merge, built against
-// Homepage's shape first, doesn't generalize to that yet. See
-// docs/decisions/007-document-adapter.md for the plan to close this gap
-// for both at once.
+// Merge knows how to walk via merge.DocumentAdapter) that plain
+// whole-document Render doesn't provide. Homepage, Homer, and Dashy all
+// implement this today — see docs/decisions/007-document-adapter.md for
+// how Homer and Dashy got there — but the assertion below stays: nothing
+// guarantees a future renderer's document shape fits an existing
+// DocumentAdapter either, and --output-path should fail clearly for one
+// that doesn't rather than a bad merge or a panic.
 type mergeableRenderer interface {
 	render.Renderer
 	merge.EntryRenderer
@@ -57,8 +55,8 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 			"redirect it yourself. With --output-path, it idempotently merges the result\n" +
 			"into that file: new services are added, changed ones are updated, ones that\n" +
 			"disappeared are removed, and anything you wrote by hand is left alone.\n\n" +
-			"Not every --format supports --output-path yet — a format that doesn't will\n" +
-			"say so and exit before touching anything.",
+			"A future --format that doesn't support this yet will say so and exit\n" +
+			"before touching anything.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
