@@ -22,6 +22,19 @@ import (
 // mode.
 const dockerCallTimeout = 10 * time.Second
 
+// defaultHostAddr is the fallback for --host-addr on every command that
+// takes it (inspect, sync): the host or IP used to build a URL
+// auto-detected from a container's published ports.
+const defaultHostAddr = "localhost"
+
+// addHostAddrFlag registers --host-addr identically on every command that
+// needs it. Defined once so inspect and sync can't quietly drift apart on
+// the flag's default or help text.
+func addHostAddrFlag(cmd *cobra.Command, hostAddr *string) {
+	cmd.Flags().StringVar(hostAddr, "host-addr", defaultHostAddr,
+		"host or IP used to build URLs auto-detected from published ports")
+}
+
 // NewRootCmd builds the root dashsync command with all its subcommands.
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -33,6 +46,7 @@ func NewRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newVersionCmd(buildinfo.Get))
 	cmd.AddCommand(newInspectCmd(discoverDocker))
+	cmd.AddCommand(newSyncCmd(discoverDocker))
 
 	return cmd
 }

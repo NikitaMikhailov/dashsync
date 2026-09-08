@@ -1,0 +1,10 @@
+- Media:
+  - Jellyfin:
+      href: http://10.0.0.5:8096
+      icon: jellyfin
+      description: Movies & TV
+  - Sonarr:
+      href: http://10.0.0.5:8989
+- Network:
+  - AdGuard Home:
+      href: http://10.0.0.5:3000

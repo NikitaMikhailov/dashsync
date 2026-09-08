@@ -4,8 +4,10 @@
 package model
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strconv"
 )
 
@@ -22,9 +24,11 @@ type Service struct {
 	Icon  string `json:"icon,omitempty"`
 	// Status is the discovered container's own state — "running",
 	// "exited", "paused", etc. It exists so a stopped-but-enabled service
-	// doesn't silently look identical to a running one: dashsync surfaces
-	// what it found, a renderer or the human reading `inspect` decides
-	// what a dead link means.
+	// doesn't silently look identical to a running one when read back with
+	// `inspect`. No renderer consumes it yet: none of the dashboard
+	// formats dashsync targets have a field for "this link is currently
+	// dead," so as of M2 it's inspect-only. Revisit once a renderer wants
+	// it — e.g. to skip stopped services, or annotate them somehow.
 	Status      string `json:"status"`
 	Description string `json:"description,omitempty"`
 	// Extra carries renderer-specific fields straight through from labels
@@ -64,4 +68,52 @@ func (s Source) ID() string {
 		strconv.Itoa(len(s.Container)) + ":" + s.Container
 	sum := sha256.Sum256([]byte(input))
 	return hex.EncodeToString(sum[:])[:12]
+}
+
+// Group is a named collection of services — the unit a Renderer works with.
+type Group struct {
+	Name     string
+	Services []Service
+}
+
+// GroupServices buckets services by their Group field into Groups sorted by
+// name, with each Group's own Services sorted by (Name, ID). It sorts
+// unconditionally rather than trusting the input's order: determinism is a
+// property of this function, not an assumption about what its caller
+// already did.
+//
+// A Service with no Group set is bucketed under "Other" rather than into a
+// nameless group. internal/discovery already defaults an unset
+// dashsync.group label to "Other" before a Service exists at all, so this
+// mostly guards against a Service built some other way (a test, or a
+// future non-Docker discovery source) rather than anything the current
+// pipeline can actually produce.
+func GroupServices(services []Service) []Group {
+	byGroup := make(map[string][]Service)
+	for _, s := range services {
+		name := s.Group
+		if name == "" {
+			name = "Other"
+		}
+		byGroup[name] = append(byGroup[name], s)
+	}
+
+	names := make([]string, 0, len(byGroup))
+	for name := range byGroup {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	groups := make([]Group, 0, len(names))
+	for _, name := range names {
+		svcs := byGroup[name]
+		slices.SortFunc(svcs, func(a, b Service) int {
+			if c := cmp.Compare(a.Name, b.Name); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.ID, b.ID)
+		})
+		groups = append(groups, Group{Name: name, Services: svcs})
+	}
+	return groups
 }
