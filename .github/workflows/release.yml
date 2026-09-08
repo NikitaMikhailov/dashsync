@@ -1,0 +1,52 @@
+# Release — builds and publishes a GitHub Release via GoReleaser whenever a
+# semver-shaped "vX.Y.Z" tag is pushed (see the tags filter below). See
+# .goreleaser.yaml and docs/decisions/006-release-process.md.
+#
+# Actions are pinned to a commit SHA, not a tag — same reasoning as ci.yml.
+name: Release
+
+on:
+  push:
+    # [0-9]+ requires at least one digit, so a typo like "vfoo-test" or a
+    # bare "v1" never triggers this workflow at all, rather than triggering
+    # it and failing partway through inside goreleaser.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # goreleaser needs full history to build the changelog
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27"
+          cache: true
+      # A tag isn't covered by main's branch protection — it can point at
+      # any commit, tested or not. Re-running the fast checks here (the
+      # full matrix already ran in ci.yml against main) is what stands
+      # between an untested or stale commit and a public GitHub Release.
+      - name: go test -race
+        run: go test ./... -race
+      - name: go vet
+        run: go vet ./...
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          # Pinned like every other tool version in this repo (golangci-lint
+          # in ci.yml, govulncheck's @v1.7.0): "latest" here would mean an
+          # unpinned GoReleaser major/minor could silently change template
+          # semantics, archive naming, or changelog grouping the day the
+          # next tag is pushed, with zero CI signal beforehand — this
+          # workflow only runs on a tag push, so there's no earlier chance
+          # to notice. Matches the version verified locally against this
+          # exact .goreleaser.yaml (see docs/decisions/006).
+          version: "2.18.1"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

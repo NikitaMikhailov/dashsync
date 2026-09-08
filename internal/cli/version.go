@@ -43,11 +43,15 @@ func printVersionText(w io.Writer, info buildinfo.Info) error {
 	if commit == "" {
 		commit = "unknown"
 	}
-	built := info.Date
-	if built == "" {
-		built = "unknown"
+	// Labeled "date", not "built": Info.Date is the tagged commit's own
+	// timestamp (vcs.time on a plain build; GoReleaser's {{ .CommitDate }}
+	// on a release build), not when the compiler actually ran — see
+	// buildinfo.go's package comment.
+	date := info.Date
+	if date == "" {
+		date = "unknown"
 	}
 
-	_, err := fmt.Fprintf(w, "dashsync %s\ncommit:  %s\nbuilt:   %s\n", info.Version, commit, built)
+	_, err := fmt.Fprintf(w, "dashsync %s\ncommit:  %s\ndate:    %s\n", info.Version, commit, date)
 	return err
 }
