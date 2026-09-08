@@ -15,15 +15,21 @@
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git add:*)"
-    ],
-    "ask": [
-      "Bash(git push:*)",
+      "Bash(git add:*)",
       "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git rebase:*)",
+      "Bash(git merge:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
       "Bash(gh:*)",
       "Bash(docker:*)",
-      "Bash(brew:*)",
       "Bash(curl:*)"
+    ],
+    "ask": [
+      "Bash(brew:*)"
     ],
     "deny": [
       "Bash(rm:*)",
