@@ -136,6 +136,63 @@ func TestSyncCmd_RendersHomerToStdout(t *testing.T) {
 	}
 }
 
+func TestSyncCmd_RendersDashyToStdout(t *testing.T) {
+	t.Parallel()
+
+	services := []model.Service{{Name: "Jellyfin", Group: "Media", URL: "http://10.0.0.5:8096"}}
+
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--format", "dashy"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil", err)
+	}
+
+	var decoded struct {
+		Sections []struct {
+			Name  string           `yaml:"name"`
+			Items []map[string]any `yaml:"items"`
+		} `yaml:"sections"`
+	}
+	if err := yaml.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+		t.Fatalf("stdout did not parse as YAML: %v\nstdout:\n%s", err, stdout.String())
+	}
+
+	if len(decoded.Sections) != 1 || decoded.Sections[0].Name != "Media" {
+		t.Fatalf("decoded = %+v, want one section named Media", decoded)
+	}
+	want := []map[string]any{{"title": "Jellyfin", "url": "http://10.0.0.5:8096"}}
+	if diff := cmp.Diff(want, decoded.Sections[0].Items); diff != "" {
+		t.Errorf("items mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestSyncCmd_DashyRejectsOutputPath(t *testing.T) {
+	t.Parallel()
+
+	// Dashy only implements render.Renderer, not the idempotent-merge
+	// mergeableRenderer yet — see docs/decisions/007-document-adapter.md.
+	// --output-path must fail clearly rather than panic on a failed type
+	// assertion or silently fall back to some other behavior.
+	path := filepath.Join(t.TempDir(), "conf.yml")
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--format", "dashy", "--output-path", path})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() = nil, want an error — dashy doesn't support --output-path yet")
+	}
+	if !strings.Contains(err.Error(), "dashy") || !strings.Contains(err.Error(), "--output-path") {
+		t.Errorf("error = %q, want it to name the format and the flag", err.Error())
+	}
+	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Error("no file should have been created")
+	}
+}
+
 func TestSyncCmd_HomerRejectsOutputPath(t *testing.T) {
 	t.Parallel()
 
@@ -165,14 +222,14 @@ func TestSyncCmd_UnknownFormat(t *testing.T) {
 
 	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
 	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--format", "dashy"})
+	cmd.SetArgs([]string{"--format", "no-such-format"})
 
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("Execute() = nil, want an error for an unsupported --format value")
 	}
-	if !strings.Contains(err.Error(), "dashy") {
-		t.Errorf("error = %q, want it to mention the passed value %q", err.Error(), "dashy")
+	if !strings.Contains(err.Error(), "no-such-format") {
+		t.Errorf("error = %q, want it to mention the passed value %q", err.Error(), "no-such-format")
 	}
 }
 

@@ -1,0 +1,7 @@
+sections:
+- name: Network
+  items:
+  - id: pihole-admin
+    target: newtab
+    title: Pi-hole
+    url: http://10.0.0.5:80/admin
