@@ -66,6 +66,26 @@ archives:
       - LICENSE
       - README.md
 
+# dockers_v2 (not the older `dockers`/`docker_manifests` — deprecated as
+# of the exact GoReleaser version this project pins, 2.18.1) builds and
+# pushes a single multi-arch manifest per tag via buildx, one entry
+# covering every platform in `builds` above — see
+# docs/decisions/010-docker-image.md for why and the Dockerfile's own
+# $TARGETPLATFORM reference this depends on.
+dockers_v2:
+  - images:
+      - ghcr.io/nikitamikhailov/dashsync
+    tags:
+      - "{{ .Version }}"
+      # "latest" is the one exception to the versionless-only naming this
+      # project otherwise avoids for the tar.gz archives (see the
+      # archives section's own comment) — unlike a filename, a mutable
+      # Docker tag pointing at "whatever's newest" is exactly what most
+      # users expect `docker pull` to do, and the immutable
+      # "{{ .Version }}" tag above is still there for anyone who wants
+      # to pin.
+      - latest
+
 checksum:
   name_template: "checksums.txt"
 
