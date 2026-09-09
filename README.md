@@ -152,6 +152,11 @@ Either way, the dashboard itself only ever reads the rendered file off
 disk — it never talks to Docker and doesn't care whether `dashsync` or a
 human wrote what it's looking at.
 
+`sync --output-path` also leaves a `<output-path>.lock` file next to it,
+permanently — an empty sidecar used to keep two overlapping runs from
+clobbering each other (see [ADR 008](docs/decisions/008-cross-process-locking.md)).
+It carries no content worth committing; add it to your own `.gitignore`.
+
 ## Development
 
 ```bash

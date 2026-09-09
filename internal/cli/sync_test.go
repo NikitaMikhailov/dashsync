@@ -300,6 +300,40 @@ func TestSyncCmd_DiscoveryError(t *testing.T) {
 	}
 }
 
+func TestSyncCmd_OutputPath_FailsCleanlyWhenAnotherWriterHoldsTheLock(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	original := []byte("- Media:\n    - Manual Entry:\n        href: https://example.com\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	// Simulate a second dashsync process already writing to this file.
+	release, err := acquireLock(path, true)
+	if err != nil {
+		t.Fatalf("acquireLock() = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = release() })
+
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() = nil, want an error: the lock is already held")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(got) != string(original) {
+		t.Errorf("file was modified despite the lock being held by someone else:\ngot:\n%s\nwant (unchanged):\n%s", got, original)
+	}
+}
+
 func TestSyncCmd_OutputPath_WritesFile(t *testing.T) {
 	t.Parallel()
 

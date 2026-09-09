@@ -178,10 +178,8 @@ which turns it into an entry dashsync no longer considers its own.
   normalize a container about to receive new content, not a comment
   already inside one that's about to be read. No workaround short of not
   hand-collapsing a managed items list to flow style in the first place.
-- **No cross-process locking.** Two `sync --output-path` invocations
-  against the same file, overlapping in time (two cron schedules, a CI
-  matrix sharing a path), can each read the same starting content,
-  compute independent merges, and the second one to finish wins — the
-  first's changes are silently lost, and neither run reports a conflict,
-  because they never see each other. Serializing calls against the same
-  `--output-path` is the caller's responsibility for now.
+- ~~**No cross-process locking.**~~ Fixed — see
+  [ADR 008](008-cross-process-locking.md). The limitation described here
+  no longer applies on an ordinary filesystem; ADR 008 covers what "no
+  longer applies" doesn't cover (a bind mount through certain virtualized
+  filesystem layers).

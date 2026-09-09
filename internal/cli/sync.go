@@ -107,7 +107,11 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 			}
 			groups := model.GroupServices(services)
 
-			release, err := acquireLock(outputPath)
+			// Only a run that's actually going to write needs to keep
+			// other writers out; --check and --dry-run are both read-only
+			// previews that can safely share the lock with each other (or
+			// with nothing at all) — see acquireLock's own doc comment.
+			release, err := acquireLock(outputPath, !check && !dryRun)
 			if err != nil {
 				return err
 			}
@@ -272,11 +276,15 @@ func writeAtomic(path string, data []byte) error {
 // pendingChangesError is --check's own signal that internal/cli.Run maps
 // to exitPendingChanges instead of the generic exit 1 every other sync
 // failure gets — see that constant's doc comment for why the distinction
-// matters. The message names --dry-run=false explicitly rather than just
-// "run without --check": --check's audience is a CI job, which is exactly
-// where $CI-triggered --dry-run defaults to true, so "without --check"
-// alone would still silently write nothing in the environment this
-// message is most likely to be read in.
+// matters. The message doesn't reconstruct a full command line — this
+// same sync invocation could carry --format, --conflict, or other flags
+// that matter for reproducing the identical merge, and hardcoding a bare
+// "dashsync sync --output-path X" would tell the reader to run something
+// different from what they actually ran. It names --dry-run=false and
+// --check explicitly instead of vaguely "run without --check": --check's
+// audience is a CI job, which is exactly where $CI-triggered --dry-run
+// defaults to true, so dropping --check alone would still silently write
+// nothing in the environment this message is most likely read in.
 type pendingChangesError struct {
 	count int
 	path  string
@@ -284,6 +292,6 @@ type pendingChangesError struct {
 
 func (e *pendingChangesError) Error() string {
 	return fmt.Sprintf(
-		"%d pending change(s) not yet applied to %s — run sync --output-path %s --dry-run=false (without --check) to write them",
-		e.count, e.path, e.path)
+		"%d pending change(s) not yet applied to %s — rerun this same sync command with --dry-run=false and without --check to write them",
+		e.count, e.path)
 }
