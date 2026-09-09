@@ -1,3 +1,11 @@
+//go:build unix
+
+// This file exercises real flock contention (lock.go's implementation) —
+// lock_other.go's non-unix stub has no contention to prove, and letting
+// these tests run against it would silently prove nothing while looking
+// like they proved something. Skipping the whole file, not individual
+// tests, keeps that failure mode from ever needing to be told apart from
+// a real regression.
 package cli
 
 import (
@@ -36,6 +44,29 @@ func TestAcquireLock_SharedCallFailsWhileExclusiveIsHeld(t *testing.T) {
 
 	if _, err := acquireLock(path, false); err == nil {
 		t.Fatal("acquireLock(shared) while an exclusive lock is held = nil, want an error")
+	}
+}
+
+func TestAcquireLock_ExclusiveCallFailsWhileSharedIsHeld(t *testing.T) {
+	t.Parallel()
+
+	// The direction that matters most in production: a real writer must
+	// not proceed while a --check (or --dry-run) run is mid-flight,
+	// exactly the scenario a scheduled --check overlapping a scheduled
+	// real sync produces. The reverse direction (exclusive blocks shared)
+	// is covered by TestAcquireLock_SharedCallFailsWhileExclusiveIsHeld;
+	// proving only one direction of this asymmetric pair wouldn't catch a
+	// regression that silently swapped LOCK_SH and LOCK_EX in acquireLock.
+	path := filepath.Join(t.TempDir(), "services.yaml")
+
+	release, err := acquireLock(path, false)
+	if err != nil {
+		t.Fatalf("acquireLock(shared) = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = release() })
+
+	if _, err := acquireLock(path, true); err == nil {
+		t.Fatal("acquireLock(exclusive) while a shared lock is held = nil, want an error")
 	}
 }
 

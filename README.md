@@ -157,6 +157,15 @@ permanently — an empty sidecar used to keep two overlapping runs from
 clobbering each other (see [ADR 008](docs/decisions/008-cross-process-locking.md)).
 It carries no content worth committing; add it to your own `.gitignore`.
 
+This locking is best-effort, not a guarantee: it relies on the output
+path living on an ordinary filesystem. A directory bind-mounted into a
+container through certain virtualized filesystem layers (confirmed
+against Docker Desktop's virtiofs specifically) can let two writers each
+believe they hold the lock at once, silently. If `dashsync` itself runs
+inside a container writing to a bind-mounted config directory, keep
+overlapping schedules serialized yourself rather than relying on this —
+see ADR 008 for why there's no portable fix available at this layer.
+
 ## Development
 
 ```bash

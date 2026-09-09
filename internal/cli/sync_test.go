@@ -334,6 +334,77 @@ func TestSyncCmd_OutputPath_FailsCleanlyWhenAnotherWriterHoldsTheLock(t *testing
 	}
 }
 
+func TestSyncCmd_OutputPath_WriteFailsWhileACheckRunHoldsTheSharedLock(t *testing.T) {
+	t.Parallel()
+
+	// The asymmetric case that actually matters in production: a
+	// scheduled --check overlapping a scheduled real write must still
+	// stop the write, even though two --check runs (or a --check racing
+	// each other) must not stop each other — see acquireLock's own doc
+	// comment. This is the RunE-level proof that --check really does
+	// take the lock (shared, but still a lock) rather than skipping
+	// locking altogether for read-only invocations.
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	original := []byte("- Media:\n    - Manual Entry:\n        href: https://example.com\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	// Simulate a concurrent --check run: a shared hold, not exclusive.
+	release, err := acquireLock(path, false)
+	if err != nil {
+		t.Fatalf("acquireLock(shared) = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = release() })
+
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--output-path", path, "--dry-run=false"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() = nil, want an error: a real write must not proceed while a --check run holds the shared lock")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(got) != string(original) {
+		t.Errorf("file was modified despite a concurrent --check holding the lock:\ngot:\n%s\nwant (unchanged):\n%s", got, original)
+	}
+}
+
+func TestSyncCmd_Check_DoesNotBlockAnotherConcurrentCheck(t *testing.T) {
+	t.Parallel()
+
+	// The other half of the asymmetry: two read-only runs must not fail
+	// each other, or --check would be useless the moment two overlapping
+	// schedules both happened to be --check.
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	original := []byte("- Media:\n    - Manual Entry:\n        href: https://example.com\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	release, err := acquireLock(path, false)
+	if err != nil {
+		t.Fatalf("acquireLock(shared) = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = release() })
+
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--output-path", path, "--check"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() = nil, want an error: this file has a pending change, --check should still report it")
+	} else if strings.Contains(err.Error(), "locked") {
+		t.Errorf("Execute() error = %v, want the pending-changes error, not a lock conflict against another --check run", err)
+	}
+}
+
 func TestSyncCmd_OutputPath_WritesFile(t *testing.T) {
 	t.Parallel()
 
