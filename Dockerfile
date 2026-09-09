@@ -4,7 +4,7 @@
 # pinning discipline everywhere else (SHA-pinned Actions, an exact
 # GoReleaser version) — the tag stays alongside it so Dependabot's docker
 # ecosystem (.github/dependabot.yml) can still propose readable bumps.
-FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 # ca-certificates: tcp+tls Docker hosts (docs/decisions/004) need a real
 # root store to verify against, same as any other HTTPS/TLS client would.
