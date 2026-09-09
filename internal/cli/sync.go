@@ -100,22 +100,28 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 						"omit --output-path to print to stdout instead", format)
 			}
 
+			// Also checked before discover() runs, for the same reason as
+			// the mergeableRenderer assertion above: two overlapping sync
+			// runs colliding is knowable from flags alone, and a run
+			// that's going to lose that race shouldn't first pay for a
+			// full Docker round-trip (bounded by dockerCallTimeout) only
+			// to find out at the last possible step. Only a run that's
+			// actually going to write needs to keep other writers out;
+			// --check and --dry-run are both read-only previews that can
+			// safely share the lock with each other (or with nothing at
+			// all) — see acquireLock's own doc comment.
+			release, err := acquireLock(outputPath, !check && !dryRun)
+			if err != nil {
+				return err
+			}
+			defer release() //nolint:errcheck // releasing a lock we're about to exit the process under has nothing useful to do with a failure
+
 			services, warnings, err := discover(cmd.Context(), hostAddr, configPath)
 			printWarnings(cmd.ErrOrStderr(), warnings)
 			if err != nil {
 				return err
 			}
 			groups := model.GroupServices(services)
-
-			// Only a run that's actually going to write needs to keep
-			// other writers out; --check and --dry-run are both read-only
-			// previews that can safely share the lock with each other (or
-			// with nothing at all) — see acquireLock's own doc comment.
-			release, err := acquireLock(outputPath, !check && !dryRun)
-			if err != nil {
-				return err
-			}
-			defer release() //nolint:errcheck // releasing a lock we're about to exit the process under has nothing useful to do with a failure
 
 			existing, err := readIfExists(outputPath)
 			if err != nil {
