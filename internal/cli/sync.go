@@ -45,7 +45,7 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 	}
 
 	var format, hostAddr, configPath, outputPath, conflict string
-	var dryRun bool
+	var dryRun, check bool
 
 	cmd := &cobra.Command{
 		Use:   "sync",
@@ -56,7 +56,10 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 			"into that file: new services are added, changed ones are updated, ones that\n" +
 			"disappeared are removed, and anything you wrote by hand is left alone.\n\n" +
 			"A future --format that doesn't support this yet will say so and exit\n" +
-			"before touching anything.",
+			"before touching anything.\n\n" +
+			"--check never writes either, like --dry-run, but exits 2 if the file has\n" +
+			"pending changes — distinct from exit 1 for any other failure, so a CI\n" +
+			"job can tell 'drifted from Docker's current state' apart from 'broke.'",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -67,6 +70,9 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 			conflictPolicy, err := parseConflictPolicy(conflict)
 			if err != nil {
 				return err
+			}
+			if check && outputPath == "" {
+				return errors.New("--check has nothing to compare against without --output-path")
 			}
 
 			if outputPath == "" {
@@ -101,6 +107,12 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 			}
 			groups := model.GroupServices(services)
 
+			release, err := acquireLock(outputPath)
+			if err != nil {
+				return err
+			}
+			defer release() //nolint:errcheck // releasing a lock we're about to exit the process under has nothing useful to do with a failure
+
 			existing, err := readIfExists(outputPath)
 			if err != nil {
 				return err
@@ -113,6 +125,12 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 
 			if err := diff.Print(cmd.OutOrStdout(), changes); err != nil {
 				return err
+			}
+			if check {
+				if len(changes) > 0 {
+					return &pendingChangesError{count: len(changes), path: outputPath}
+				}
+				return nil
 			}
 			if dryRun {
 				return nil
@@ -132,6 +150,9 @@ func newSyncCmd(discover func(ctx context.Context, hostAddr, configPath string) 
 	// A human running this at a terminal almost certainly wants to write.
 	cmd.Flags().BoolVar(&dryRun, "dry-run", os.Getenv("CI") != "",
 		"preview changes without writing anything (defaults to true when $CI is set)")
+	cmd.Flags().BoolVar(&check, "check", false,
+		"like --dry-run, but exit 2 if the file has pending changes, distinct from exit 1 for any other "+
+			"failure (requires --output-path); for a job that should fail when the file has drifted from Docker's current state")
 	addHostAddrFlag(cmd, &hostAddr)
 	addConfigFlag(cmd, &configPath)
 
@@ -246,4 +267,23 @@ func writeAtomic(path string, data []byte) error {
 		return fmt.Errorf("rename temp file into place: %w", err)
 	}
 	return nil
+}
+
+// pendingChangesError is --check's own signal that internal/cli.Run maps
+// to exitPendingChanges instead of the generic exit 1 every other sync
+// failure gets — see that constant's doc comment for why the distinction
+// matters. The message names --dry-run=false explicitly rather than just
+// "run without --check": --check's audience is a CI job, which is exactly
+// where $CI-triggered --dry-run defaults to true, so "without --check"
+// alone would still silently write nothing in the environment this
+// message is most likely to be read in.
+type pendingChangesError struct {
+	count int
+	path  string
+}
+
+func (e *pendingChangesError) Error() string {
+	return fmt.Sprintf(
+		"%d pending change(s) not yet applied to %s — run sync --output-path %s --dry-run=false (without --check) to write them",
+		e.count, e.path, e.path)
 }

@@ -456,6 +456,166 @@ func TestSyncCmd_OutputPath_MergesAndBacksUpExistingFile(t *testing.T) {
 	}
 }
 
+func TestSyncCmd_Check_FailsWhenChangesArePending(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--output-path", path, "--check"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() = nil, want an error: a fresh file has a pending 'added' change")
+	}
+	if !strings.Contains(stdout.String(), "added") {
+		t.Errorf("stdout = %q, want the change preview before the error", stdout.String())
+	}
+	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Error("--check must never write, even when it reports pending changes")
+	}
+}
+
+func TestSyncCmd_Check_WithConflictFail_ReportsTheConflictNotPendingChanges(t *testing.T) {
+	t.Parallel()
+
+	// merge.Merge returns a *ConflictError under --conflict=fail before
+	// the changes slice --check inspects even exists (internal/merge/
+	// merge.go's Fail case returns from inside Merge itself) — so --check
+	// composed with --conflict=fail must surface as that same conflict
+	// failure, not as --check's own "N pending change(s)" message, and
+	// must still leave the file untouched either way.
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	original := []byte("- Media:\n    # dashsync:managed id=id1 content=deadbeef\n    - Jellyfin:\n        href: http://HAND-EDITED\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--output-path", path, "--conflict", "fail", "--check"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() = nil, want a conflict error")
+	}
+	if strings.Contains(err.Error(), "pending change") {
+		t.Errorf("error = %q, want the conflict error, not --check's own pending-changes message", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(got) != string(original) {
+		t.Errorf("file was modified despite --conflict=fail --check:\ngot:\n%s\nwant (unchanged):\n%s", got, original)
+	}
+}
+
+func TestSyncCmd_Check_FailsOnARemovedServiceToo(t *testing.T) {
+	t.Parallel()
+
+	// TestSyncCmd_Check_FailsWhenChangesArePending only ever exercises an
+	// Added change; len(changes) > 0 is kind-agnostic, but a regression
+	// that special-cased Added wouldn't be caught without this.
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	// The content hash doesn't need to be real: removal doesn't check it
+	// (ADR 002 — a managed entry whose ID is gone from Desired is removed
+	// unconditionally, hand-edited or not), only the marker's id matters.
+	original := []byte("- Media:\n    # dashsync:managed id=id1 content=deadbeef\n    - Jellyfin:\n        href: http://x\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	// The container behind id1 is gone from this run's discovery.
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--output-path", path, "--check"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() = nil, want an error: the file has a pending removal")
+	}
+	if !strings.Contains(stdout.String(), "removed") {
+		t.Errorf("stdout = %q, want the removal reflected in the preview", stdout.String())
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(got) != string(original) {
+		t.Error("--check must not remove the entry, only report that it would be removed")
+	}
+}
+
+func TestSyncCmd_Check_SucceedsWhenNothingIsPending(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+
+	// First write the file for real, so the second, --check run has
+	// nothing left to do.
+	seed := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	seed.SetOut(&bytes.Buffer{})
+	seed.SetArgs([]string{"--output-path", path, "--dry-run=false"})
+	if err := seed.Execute(); err != nil {
+		t.Fatalf("seed Execute() = %v, want nil", err)
+	}
+
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--output-path", path, "--check"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil: the file already matches, nothing is pending", err)
+	}
+	if !strings.Contains(stdout.String(), "no changes") {
+		t.Errorf("stdout = %q, want %q", stdout.String(), "no changes")
+	}
+}
+
+func TestSyncCmd_Check_RequiresOutputPath(t *testing.T) {
+	t.Parallel()
+
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return nil, nil, nil })
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--check"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() = nil, want an error: --check has nothing to compare against without --output-path")
+	}
+	if !strings.Contains(err.Error(), "--output-path") {
+		t.Errorf("error = %q, want it to mention --output-path", err)
+	}
+}
+
+func TestSyncCmd_Check_IgnoresDryRunFalse(t *testing.T) {
+	t.Parallel()
+
+	// --check's whole point is never writing regardless of what triggered
+	// it — an explicit --dry-run=false must not override that.
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	services := []model.Service{{ID: "id1", Name: "Jellyfin", Group: "Media", URL: "http://x"}}
+
+	cmd := newSyncCmd(func(context.Context, string, string) ([]model.Service, []error, error) { return services, nil, nil })
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--output-path", path, "--check", "--dry-run=false"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() = nil, want an error: a fresh file has a pending change")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Error("--check must not write even with --dry-run=false")
+	}
+}
+
 func TestSyncCmd_UnknownConflictValue(t *testing.T) {
 	t.Parallel()
 

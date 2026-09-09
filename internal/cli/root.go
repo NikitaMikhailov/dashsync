@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -161,8 +162,33 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		fmt.Fprintln(stderr, "Error:", err)
-		return 1
+		return exitCodeFor(err)
 	}
 
 	return 0
+}
+
+// exitPendingChanges is `sync --check`'s distinct exit code for "the file
+// has changes it doesn't yet have" — the one signal a CI job invoking
+// --check actually wants to gate on. Every other failure (a bad flag,
+// Docker unreachable, a hand-edit conflict under --conflict fail, ...)
+// still exits 1: only a *found nothing wrong, just found something
+// pending* result gets its own code, the same distinction tools like
+// `terraform plan -detailed-exitcode` and `kustomize diff` draw for the
+// identical reason — collapsing "the check did its job" into the same
+// code as "the check itself is broken" would defeat --check's one
+// purpose in a CI script.
+const exitPendingChanges = 2
+
+// exitCodeFor turns a non-nil RunE error into a process exit code —
+// pulled out of Run itself so the mapping is unit-testable without a real
+// Docker daemon behind it (Run always wires NewRootCmd's real
+// discoverDocker, with no seam to fake pendingChangesError through
+// end-to-end).
+func exitCodeFor(err error) int {
+	var pending *pendingChangesError
+	if errors.As(err, &pending) {
+		return exitPendingChanges
+	}
+	return 1
 }

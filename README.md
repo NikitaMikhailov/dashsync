@@ -131,6 +131,23 @@ involved. Two common ways to trigger the `sync` step itself:
   automation shell that happens to export `$CI` for unrelated reasons
   will otherwise print a change summary and write nothing.
 
+A separate, scheduled job — one that shouldn't write anything, just catch
+a committed file going stale relative to what's actually running — wants
+`--check` instead of the auto-commit/open-a-PR pattern above: it never
+writes, and exits with a distinct code (2, not the generic 1 every other
+failure gets) when the file has pending changes, so "the check found
+drift" can be told apart from "the check itself broke." Since discovery
+only ever reads Docker's *current* state (dashsync never inspects a
+compose file or a PR diff — see "Why this exists" above), this job needs
+to run somewhere that can already see the container in question, which
+makes it a post-deploy drift check, not a pre-merge PR gate: a container
+added in a PR isn't running anywhere yet for `--check` to discover until
+after that PR merges and deploys.
+
+```bash
+dashsync sync --output-path services.yaml --check
+```
+
 Either way, the dashboard itself only ever reads the rendered file off
 disk — it never talks to Docker and doesn't care whether `dashsync` or a
 human wrote what it's looking at.
