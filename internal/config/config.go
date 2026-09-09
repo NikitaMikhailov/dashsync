@@ -14,22 +14,15 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// validAddressSchemes are the URL schemes an address may use. Only tcp and
-// unix are here — not because those are the only schemes Docker's own CLI
-// or $DOCKER_HOST ever accept (ssh:// is a real, documented Docker
-// connection form), but because the underlying client library this
-// project depends on, github.com/moby/moby/client, doesn't actually
-// implement SSH transport: client.WithHost passes an ssh:// address
-// straight to a plain TCP dialer (see sockets.ConfigureTransport's default
-// case), which fails confusingly instead of tunneling over SSH the way a
-// user who wrote ssh:// would reasonably expect. Advertising ssh:// as
-// supported here would be worse than not mentioning it at all — accepted
-// syntax with silently wrong behavior underneath it, only found through a
-// working session that reviewed this exact question against the vendored
-// dependency's source. It can come back the day dashsync depends on
-// something that actually tunnels over SSH (docker/cli's own
-// connhelper/ssh package is the reference implementation, but pulling it
-// in is a dependency discussion of its own, not a one-line addition).
+// validAddressSchemes are the URL schemes an address may use. tcp and
+// unix are the two github.com/moby/moby/client (this project's Docker SDK)
+// supports natively. ssh was excluded for a long time because that same
+// library doesn't implement SSH transport on its own — client.WithHost
+// passed an ssh:// address straight to a plain TCP dialer, which failed
+// confusingly instead of tunneling. It's supported now via
+// internal/discovery's own exec+"docker system dial-stdio" mechanism
+// (the same one Docker's own official ssh:// support uses under the
+// hood), not by the SDK — see docs/decisions/009-ssh-docker-discovery.md.
 //
 // npipe, Windows' named pipe transport, is excluded for an unrelated,
 // simpler reason: there's no Windows build to exercise it against (see
@@ -38,6 +31,7 @@ import (
 var validAddressSchemes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table, never mutated
 	"tcp":  true,
 	"unix": true,
+	"ssh":  true,
 }
 
 // TLS holds the client certificate material for a TCP+TLS Docker
@@ -107,6 +101,11 @@ func addressHostname(address string) string {
 // it means "use the environment's own Docker connection," which has no
 // scheme to check.
 //
+// The canonical form is built from u.Host alone, which never includes
+// userinfo — "ssh://alice@10.0.0.6" and "ssh://bob@10.0.0.6" canonicalize
+// identically and are flagged as duplicate addresses. Deliberate, not an
+// oversight: it's the same daemon regardless of which user connects.
+//
 // This is also the single point deciding whether an address is well-formed
 // enough to build a Docker client from later: a scheme-less address like
 // "10.0.0.6:2376" (a plausible copy-paste from $DOCKER_HOST, which does
@@ -123,7 +122,7 @@ func addressScheme(address string) (scheme, canonical string, err error) {
 		return "", "", fmt.Errorf("invalid address %q: %w", address, err)
 	}
 	if !validAddressSchemes[u.Scheme] {
-		return "", "", fmt.Errorf("invalid address %q: unsupported scheme %q, want tcp:// or unix://", address, u.Scheme)
+		return "", "", fmt.Errorf("invalid address %q: unsupported scheme %q, want tcp://, unix://, or ssh://", address, u.Scheme)
 	}
 	canonical = strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimSuffix(u.Path, "/")
 	return u.Scheme, canonical, nil
@@ -226,6 +225,8 @@ func (c Config) validate() error {
 						"which doesn't consult this config's tls settings)", i, h.Name)
 			case scheme == "unix":
 				return fmt.Errorf("hosts[%d] (%q): tls has no effect on a unix socket address", i, h.Name)
+			case scheme == "ssh":
+				return fmt.Errorf("hosts[%d] (%q): tls has no effect on an ssh address — ssh already provides transport security", i, h.Name)
 			case (h.TLS.Cert == "") != (h.TLS.Key == ""):
 				return fmt.Errorf("hosts[%d] (%q): tls.cert and tls.key must both be set or both left empty", i, h.Name)
 			}
