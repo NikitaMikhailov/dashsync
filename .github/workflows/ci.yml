@@ -51,15 +51,20 @@ jobs:
         # artifacts built from a dependency graph nothing else tested —
         # see .goreleaser.yaml's own comment on why it doesn't run tidy.
         run: go mod tidy -diff
-      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
-        with:
-          distribution: goreleaser
-          version: "2.18.1" # matches release.yml's pin
-          args: check
-        # Validates .goreleaser.yaml's schema on every PR — a Dependabot
-        # version bump or a hand edit to the config gets checked here,
-        # instead of the only signal being a real tag push failing inside
-        # release.yml.
+        # `goreleaser check` used to run here to validate .goreleaser.yaml's
+        # schema on every PR. Removed once `brews` (docs/decisions/011)
+        # made that impossible: `check` treats any deprecated field as a
+        # hard failure with no way to allow it, while `release` (even
+        # under --snapshot) only warns and still succeeds — confirmed by
+        # running both locally side by side. `brews` is deprecated but
+        # deliberately kept (its replacement, homebrew_casks, doesn't
+        # support Linux at all, which this project ships binaries for),
+        # so `check` would fail on every single run regardless of any
+        # real problem. The docker-build-check job's own snapshot build
+        # below already parses and exercises this same config more
+        # thoroughly than `check` ever did — nothing here is losing
+        # coverage, just losing a check subcommand that can no longer
+        # tell "deprecated, deliberately" apart from "actually broken."
 
   docker-build-check:
     name: docker build check
@@ -91,10 +96,13 @@ jobs:
           distribution: goreleaser
           version: "2.18.1" # matches release.yml's pin
           args: release --snapshot --clean --skip=publish
-        # `goreleaser check` in the lint job above only validates schema —
-        # it never actually builds the Dockerfile, so a broken multi-arch
-        # buildx setup or a typo in $TARGETPLATFORM would otherwise have
-        # no signal before a real tag push fails inside release.yml.
+        # This is now the only .goreleaser.yaml validation in CI — see the
+        # lint job's own comment for why the schema-only `check`
+        # subcommand was removed. A real (unpushed) snapshot build here
+        # catches strictly more: a broken multi-arch buildx setup, a typo
+        # in $TARGETPLATFORM, or a genuine config error, all with no
+        # signal before a real tag push otherwise fails inside
+        # release.yml.
 
   build:
     name: build (${{ matrix.goos }}/${{ matrix.goarch }})

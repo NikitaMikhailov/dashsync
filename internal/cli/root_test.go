@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/NikitaMikhailov/dashsync/internal/discovery"
@@ -196,5 +197,38 @@ func TestExitCodeFor_WrappedPendingChangesErrorStillMatches(t *testing.T) {
 	wrapped := fmt.Errorf("sync: %w", &pendingChangesError{count: 1, path: "x.yaml"})
 	if got := exitCodeFor(wrapped); got != exitPendingChanges {
 		t.Errorf("exitCodeFor(wrapped pendingChangesError) = %d, want %d", got, exitPendingChanges)
+	}
+}
+
+func TestGoreleaserBrewDescription_MatchesRootCommandShort(t *testing.T) {
+	t.Parallel()
+
+	// .goreleaser.yaml's Homebrew formula description (docs/decisions/011)
+	// is meant to be the same text as this command's own Short — copied by
+	// hand, not shared code, since one is Go and the other YAML consumed
+	// by a separate tool entirely. Nothing else ties them together, so
+	// without this test the next edit to one silently drifts from the
+	// other.
+	data, err := os.ReadFile(filepath.Join("..", "..", ".goreleaser.yaml"))
+	if err != nil {
+		t.Fatalf("read .goreleaser.yaml: %v", err)
+	}
+
+	var cfg struct {
+		Brews []struct {
+			Description string `yaml:"description"`
+		} `yaml:"brews"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse .goreleaser.yaml: %v", err)
+	}
+	if len(cfg.Brews) != 1 {
+		t.Fatalf("brews = %d entries, want exactly 1", len(cfg.Brews))
+	}
+
+	want := NewRootCmd().Short
+	if cfg.Brews[0].Description != want {
+		t.Errorf(".goreleaser.yaml brews[0].description = %q, want it to match the root command's Short %q",
+			cfg.Brews[0].Description, want)
 	}
 }
