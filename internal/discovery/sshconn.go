@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os/exec"
 	"strings"
@@ -28,6 +29,18 @@ type sshTarget struct {
 // is deliberately left to the caller's own ssh(1) configuration rather
 // than a dashsync config field: there's exactly one reasonable place for
 // each of those to live already, and it isn't here.
+//
+// A userinfo or host starting with "-" is rejected outright, not merely
+// defused by args()'s own "--" (below): url.URL's userinfo grammar
+// (RFC 3986) permits percent-encoded characters a naive check might miss,
+// and ssh(1) accepts bundled short options like "-oProxyCommand=...",
+// which OpenSSH executes via the shell before any network connection is
+// even attempted — a dashsync.yaml address is meant to name a Docker
+// daemon, not carry an ssh(1) command-line flag. Found and fixed via
+// review: an earlier version of this code passed User/Host straight
+// through as a bare positional argument, and
+// "ssh://-oProxyCommand=...@host" ran the injected command for real
+// against the actual system ssh binary before this check existed.
 func parseSSHTarget(address string) (sshTarget, error) {
 	u, err := url.Parse(address)
 	if err != nil {
@@ -36,9 +49,20 @@ func parseSSHTarget(address string) (sshTarget, error) {
 	if u.Hostname() == "" {
 		return sshTarget{}, fmt.Errorf("invalid ssh address %q: no host", address)
 	}
+	if strings.HasPrefix(u.Hostname(), "-") {
+		return sshTarget{}, fmt.Errorf("invalid ssh address %q: host must not start with \"-\"", address)
+	}
 	var user string
 	if u.User != nil {
 		user = u.User.Username()
+		if strings.HasPrefix(user, "-") {
+			return sshTarget{}, fmt.Errorf("invalid ssh address %q: user must not start with \"-\"", address)
+		}
+	}
+	if u.Path != "" && u.Path != "/" {
+		return sshTarget{}, fmt.Errorf(
+			"invalid ssh address %q: a path component isn't meaningful here (docker system dial-stdio always runs "+
+				"against the remote's default docker context, regardless of any path) — remove it", address)
 	}
 	return sshTarget{User: user, Host: u.Hostname(), Port: u.Port()}, nil
 }
@@ -49,6 +73,13 @@ func parseSSHTarget(address string) (sshTarget, error) {
 // of hanging on a prompt no discovery run can ever answer — the first
 // connection to a new host has to be accepted with a manual `ssh` run
 // once, same as Docker's own ssh:// support (see the ADR and README).
+//
+// The "--" before the destination is a second, independent layer against
+// the same option-injection risk parseSSHTarget already rejects up
+// front: it tells ssh(1) to stop parsing options, so the destination
+// argument is always treated as a plain positional value regardless of
+// what it starts with, even if some future change to parseSSHTarget ever
+// weakened its own check.
 func (t sshTarget) args() []string {
 	args := []string{"-o", "BatchMode=yes"}
 	if t.Port != "" {
@@ -58,7 +89,7 @@ func (t sshTarget) args() []string {
 	if t.User != "" {
 		host = t.User + "@" + host
 	}
-	return append(args, host, "docker", "system", "dial-stdio")
+	return append(args, "--", host, "docker", "system", "dial-stdio")
 }
 
 // commandConn adapts a subprocess's stdin/stdout pipes to net.Conn, the
@@ -185,6 +216,23 @@ func (sshConnAddr) String() string  { return "ssh-docker-dial-stdio" }
 // run "docker system dial-stdio" over an SSH session. sshBinary is
 // parameterized (production code always passes "ssh") so tests can
 // substitute a stand-in without a real ssh binary or server.
+//
+// exec.CommandContext ties the subprocess's lifetime to ctx — the
+// context of whichever call is dialing, not of the conn's own later
+// lifetime — so the SSH session gets SIGKILL'd the instant that dial's
+// ctx is done, independent of whether the resulting conn is still in
+// use. Safe today only because of an invariant this package's actual
+// call pattern happens to uphold, not because of anything enforced here:
+// internal/discovery.discoverOneHost makes exactly one API call per
+// client and unconditionally closes it afterward, all under one
+// dockerCallTimeout-bounded ctx shared for the client's entire lifetime
+// (see internal/cli/root.go). If a future change ever issues a second
+// call on the same *client.Client using a narrower, per-call context —
+// multihost.go's own dockerConnector doc comment already anticipates
+// exactly this kind of future ctx use — that call's own cancellation
+// would kill the SSH session out from under a connection a still-live,
+// longer-lived caller expects to keep using. Worth an explicit look
+// before that invariant is the first thing to break.
 func sshDockerDialer(sshBinary string, target sshTarget) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return func(ctx context.Context, _, _ string) (net.Conn, error) {
 		cmd := exec.CommandContext(ctx, sshBinary, target.args()...)
@@ -196,20 +244,47 @@ func sshDockerDialer(sshBinary string, target sshTarget) func(ctx context.Contex
 //
 // Option order matters and will silently misbehave if reversed:
 // client.WithHost's own implementation (sockets.ConfigureTransport)
-// overwrites the transport's DialContext with a plain TCP dialer as its
-// default-case behavior, so WithDialContext must be listed after WithHost
-// to have the last word. client.DummyHost is the SDK's own placeholder
-// for "this is never actually resolved" — the custom dialer below ignores
-// whatever network/addr the HTTP layer passes it and always reaches the
-// same fixed SSH target instead.
+// configures the *existing* transport — setting its DialContext to a
+// plain TCP dialer *and* its Proxy to http.ProxyFromEnvironment — as its
+// default-case behavior, so it must run first, against the client's
+// original throwaway transport, before being replaced outright.
+// client.WithHTTPClient (not client.WithDialContext) is used afterward
+// specifically because WithDialContext only overwrites DialContext,
+// leaving that Proxy setting in place: on a machine with $HTTP_PROXY set
+// — unremarkable on exactly the corporate networks most likely to need
+// SSH-bastion Docker access in the first place — every request would
+// silently switch to proxy (absolute-URI) request-line form, which a
+// plain Docker daemon on the other end of the SSH tunnel doesn't
+// understand. Found via review, verified against a fake dialer with and
+// without $HTTP_PROXY set before this fix existed. WithHTTPClient
+// replaces the client's transport wholesale with one this function fully
+// controls — Proxy left at its zero value (nil, meaning never proxy) —
+// so nothing here depends on whatever the environment happens to be.
+//
+// client.DummyHost is the SDK's own placeholder for "this is never
+// actually resolved" — the custom dialer ignores whatever network/addr
+// the HTTP layer passes it and always reaches the same fixed SSH target
+// instead.
 func newSSHDockerClient(address string) (*client.Client, error) {
 	target, err := parseSSHTarget(address)
 	if err != nil {
 		return nil, err
 	}
+	return newDockerClientWithDialer(sshDockerDialer("ssh", target))
+}
+
+// newDockerClientWithDialer is newSSHDockerClient's option-wiring split
+// out on its own so a test can substitute a capturing dialContext in
+// place of a real ssh subprocess and inspect the raw bytes a request
+// actually produces — see TestNewDockerClientWithDialer_IgnoresHTTPProxy,
+// the regression test for the bug this function's own doc comment
+// describes.
+func newDockerClientWithDialer(dialContext func(ctx context.Context, network, addr string) (net.Conn, error)) (*client.Client, error) {
 	c, err := client.New(
 		client.WithHost("http://"+client.DummyHost),
-		client.WithDialContext(sshDockerDialer("ssh", target)),
+		client.WithHTTPClient(&http.Client{
+			Transport: &http.Transport{DialContext: dialContext},
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build ssh docker client: %w", err)

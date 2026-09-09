@@ -2,12 +2,15 @@ package discovery
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/moby/moby/client"
 )
 
 func TestParseSSHTarget(t *testing.T) {
@@ -25,6 +28,21 @@ func TestParseSSHTarget(t *testing.T) {
 		{name: "bracketed ipv6", address: "ssh://[2001:db8::1]:22", want: sshTarget{Host: "2001:db8::1", Port: "22"}},
 		{name: "empty host is an error", address: "ssh://", wantErr: true},
 		{name: "invalid url is an error", address: "ssh://%zz", wantErr: true},
+		{name: "password is silently discarded, not carried through", address: "ssh://alice:hunter2@10.0.0.6", want: sshTarget{User: "alice", Host: "10.0.0.6"}},
+		{name: "path component is rejected, not silently ignored", address: "ssh://10.0.0.6/var/run/docker.sock", wantErr: true},
+		{name: "bare trailing slash is fine (not a real path)", address: "ssh://10.0.0.6/", want: sshTarget{Host: "10.0.0.6"}},
+
+		// Regression: an earlier version of parseSSHTarget passed User/Host
+		// straight through unchecked. "ssh://-oProxyCommand=...@host"
+		// parses as a valid URL whose userinfo starts with "-" — ssh(1)
+		// accepts a bundled short option in that exact shape
+		// (-oKey=value) as its first positional argument, and OpenSSH
+		// runs a ProxyCommand via the shell before any network connection
+		// is attempted. This was exploited for real against the actual
+		// system ssh binary (a PoC that created a marker file on disk)
+		// before this rejection existed — see the doc comment above.
+		{name: "leading dash in userinfo is rejected (option-injection attempt)", address: "ssh://-oProxyCommand=touch%20pwned@10.0.0.6", wantErr: true},
+		{name: "leading dash in host is rejected (option-injection attempt)", address: "ssh://-oProxyCommand=touch%20pwned", wantErr: true},
 	}
 
 	for _, tc := range tests {
@@ -59,12 +77,12 @@ func TestSSHTarget_Args(t *testing.T) {
 		{
 			name:   "user host and port",
 			target: sshTarget{User: "alice", Host: "10.0.0.6", Port: "2222"},
-			want:   []string{"-o", "BatchMode=yes", "-p", "2222", "alice@10.0.0.6", "docker", "system", "dial-stdio"},
+			want:   []string{"-o", "BatchMode=yes", "-p", "2222", "--", "alice@10.0.0.6", "docker", "system", "dial-stdio"},
 		},
 		{
 			name:   "host only, no port",
 			target: sshTarget{Host: "10.0.0.6"},
-			want:   []string{"-o", "BatchMode=yes", "10.0.0.6", "docker", "system", "dial-stdio"},
+			want:   []string{"-o", "BatchMode=yes", "--", "10.0.0.6", "docker", "system", "dial-stdio"},
 		},
 	}
 
@@ -190,9 +208,57 @@ func TestSSHDockerDialer_BuildsExpectedCommand(t *testing.T) {
 	out := make([]byte, 256)
 	n, _ := readUntilEOF(conn, out)
 	got := strings.Fields(strings.TrimSpace(string(out[:n])))
-	want := []string{"-o", "BatchMode=yes", "-p", "2222", "alice@10.0.0.6", "docker", "system", "dial-stdio"}
+	want := []string{"-o", "BatchMode=yes", "-p", "2222", "--", "alice@10.0.0.6", "docker", "system", "dial-stdio"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("invoked ssh with %q, want %q", got, want)
+	}
+}
+
+func TestNewDockerClientWithDialer_IgnoresHTTPProxy(t *testing.T) {
+	// Not t.Parallel(): t.Setenv forbids it.
+	t.Setenv("HTTP_PROXY", "http://proxy.example:8080")
+	t.Setenv("http_proxy", "http://proxy.example:8080")
+
+	// Regression for a bug found in review: client.WithHost configures
+	// the *original* transport's Proxy field as a side effect
+	// (sockets.ConfigureTransport's default case sets it to
+	// http.ProxyFromEnvironment) before client.WithHTTPClient replaces
+	// that transport wholesale — but only client.WithDialContext, not
+	// WithHTTPClient, was tried first, and WithDialContext alone leaves
+	// that Proxy setting on the original transport in place if it's the
+	// one still in use. With $HTTP_PROXY set, every request would
+	// silently switch to proxy (absolute-URI) request-line form, which a
+	// plain Docker daemon doesn't understand. newDockerClientWithDialer
+	// uses WithHTTPClient specifically to replace the transport outright
+	// with one whose Proxy is left at its zero value (nil) — this test
+	// proves that by inspecting the actual bytes written for a real
+	// request, not by asserting an internal field.
+	serverEnd, clientEnd := net.Pipe()
+	captured := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		n, _ := serverEnd.Read(buf)
+		captured <- string(buf[:n])
+	}()
+
+	dial := func(context.Context, string, string) (net.Conn, error) { return clientEnd, nil }
+	c, err := newDockerClientWithDialer(dial)
+	if err != nil {
+		t.Fatalf("newDockerClientWithDialer() error = %v, want nil", err)
+	}
+	defer c.Close() //nolint:errcheck
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	_, _ = c.Ping(ctx, client.PingOptions{}) // the fake server never answers; only the request line matters here
+
+	select {
+	case reqLine := <-captured:
+		if strings.Contains(reqLine, "http://"+client.DummyHost) {
+			t.Errorf("request line used proxy absolute-URI form despite $HTTP_PROXY being set: %q", reqLine)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no request observed on the fake connection")
 	}
 }
 

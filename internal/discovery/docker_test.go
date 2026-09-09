@@ -232,3 +232,42 @@ func TestNewDockerClientForHost_TLSFieldsAreActuallyApplied(t *testing.T) {
 		t.Fatal("NewDockerClientForHost() error = nil, want an error: the tls cert/key files don't exist")
 	}
 }
+
+func TestNewDockerClientForHost_SSHAddressSucceeds(t *testing.T) {
+	t.Parallel()
+
+	// client.New doesn't dial anything (see NewDockerClientForHost's own
+	// doc comment), so a valid ssh:// address reaching newSSHDockerClient
+	// and building a client without error is provable without a real ssh
+	// binary or server — same reasoning as the tcp/unix cases above.
+	c, err := NewDockerClientForHost("ssh://alice@10.0.0.6", "", "", "")
+	if err != nil {
+		t.Fatalf("NewDockerClientForHost() error = %v, want nil", err)
+	}
+	defer c.Close() //nolint:errcheck // test cleanup, nothing to act on
+}
+
+func TestNewDockerClientForHost_SSHAddressRejectsTLS(t *testing.T) {
+	t.Parallel()
+
+	// config.validate() already rejects this combination, but
+	// NewDockerClientForHost checks it again defensively — Host is a
+	// plain exported struct nothing stops a caller from constructing by
+	// hand outside that validation path.
+	_, err := NewDockerClientForHost("ssh://alice@10.0.0.6", "/ca.pem", "", "")
+	if err == nil {
+		t.Fatal("NewDockerClientForHost() error = nil, want an error: tls is not supported over ssh")
+	}
+	if !strings.Contains(err.Error(), "ssh") {
+		t.Errorf("error = %q, want it to mention ssh", err)
+	}
+}
+
+func TestNewDockerClientForHost_InvalidSSHAddressPropagatesTheError(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewDockerClientForHost("ssh://", "", "", "")
+	if err == nil {
+		t.Fatal("NewDockerClientForHost() error = nil, want an error: ssh:// with no host is invalid")
+	}
+}
