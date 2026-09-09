@@ -120,3 +120,28 @@ release:
   # as a GitHub pre-release automatically — dashsync isn't there yet
   # (every tag so far is a real release), but costs nothing to leave on.
   prerelease: auto
+
+# Pushes a formula to a separate NikitaMikhailov/homebrew-tap repo on every
+# release, so `brew install nikitamikhailov/tap/dashsync` (after `brew tap
+# nikitamikhailov/tap` once) works — see docs/decisions/011-homebrew-tap.md.
+# The token needs its own repo, separate from GITHUB_TOKEN: that token is
+# scoped to this repository only (by GitHub Actions itself), and pushing
+# a commit to a *different* repository needs a credential that actually
+# has write access there — a fine-grained PAT scoped to only
+# homebrew-tap's contents, stored as this repo's own
+# HOMEBREW_TAP_GITHUB_TOKEN secret (release.yml passes it through as an
+# env var of the same name; nothing here or in that workflow ever prints
+# or logs its value).
+brews:
+  - name: dashsync
+    repository:
+      owner: NikitaMikhailov
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/NikitaMikhailov/dashsync"
+    # Matches internal/cli/root.go's own Short description verbatim — one
+    # description of what this tool is, not two that can drift apart.
+    description: "Idempotent git-native sync from Docker containers to self-hosted dashboard configs"
+    license: "Apache-2.0"
+    test: |
+      system "#{bin}/dashsync version"

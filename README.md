@@ -39,7 +39,13 @@ The tool is built around three properties that follow from that:
 
 ## Install
 
-Download a prebuilt binary from the
+Via Homebrew (macOS or Linux):
+
+```bash
+brew install nikitamikhailov/tap/dashsync
+```
+
+Or download a prebuilt binary from the
 [latest release](https://github.com/NikitaMikhailov/dashsync/releases/latest)
 (linux/darwin, amd64/arm64):
 

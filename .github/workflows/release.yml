@@ -70,3 +70,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # brews' own push to NikitaMikhailov/homebrew-tap (docs/decisions/011)
+          # needs a credential with write access to that separate repo —
+          # GITHUB_TOKEN above is scoped to this repo only, by GitHub
+          # Actions itself, regardless of the permissions block at the
+          # top of this file.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
