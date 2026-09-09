@@ -15,11 +15,12 @@ dashboards (Homepage, Homer, Dashy) from the Docker API.
 
 ## Core packages
 
-`internal/merge`, `internal/model`, `internal/render/*`, `internal/cli`, and
-`internal/buildinfo` hold this project's real logic. Implement them fully —
-production quality, tested, no stubs or TODOs left for later. Keep doc
-comments normal and concise; a deeper walkthrough of a specific piece
-happens on request, not as running commentary on every commit.
+`internal/merge`, `internal/model`, `internal/render/*`, `internal/cli`,
+`internal/discovery`, `internal/config`, `internal/diff`, and
+`internal/buildinfo` hold this project's real logic. Implement them
+fully — production quality, tested, no stubs or TODOs left for later.
+Keep doc comments normal and concise; a deeper walkthrough of a specific
+piece happens on request, not as running commentary on every commit.
 
 ## Code rules
 

@@ -61,13 +61,19 @@ uses that sort instead of inventing a second one.
 
 ## Alternatives considered
 
-- **A Homebrew tap, a Docker image, or Linux packages (deb/rpm) in the
+- ~~**A Homebrew tap, a Docker image, or Linux packages (deb/rpm) in the
   same milestone.** Deferred, not rejected: GoReleaser supports all three
   with a few more config blocks, but each adds its own maintenance surface
   (a tap repo, a registry, package signing) with no evidence yet that
   anyone wants dashsync installed that way. `go install` and a raw binary
   download cover the realistic first-release audience; revisit if a real
-  request shows up.
+  request shows up.~~ Revisited: a Docker image ([ADR 010](010-docker-image.md))
+  and a Homebrew tap ([ADR 011](011-homebrew-tap.md)) both shipped later —
+  the "revisit" bar here was "a real request," which arrived. `.deb`/`.rpm`
+  did get a real decision by then too, not just left deferred: ADR 010
+  rejected it outright, for reasons specific to that format (no real
+  apt/yum repo infra behind it makes a bare package file barely better
+  than the existing `curl | tar`).
 - **Baking `uname -m`'s architecture spelling directly into the archive
   name** (so the install snippet needs no translation at all). Rejected
   once Linux's `aarch64` vs. Darwin's `arm64` for the identical
@@ -78,9 +84,14 @@ uses that sort instead of inventing a second one.
 
 ## Consequences
 
-- Cutting a release is `git tag vX.Y.Z && git push --tags` — the tag push
-  triggers `.github/workflows/release.yml`, which runs
-  `goreleaser release --clean` and does everything else.
+- Cutting a release is ~~`git tag vX.Y.Z && git push --tags`~~
+  `git tag vX.Y.Z && git push origin vX.Y.Z` — pushing the one tag just
+  created, not every local tag `--tags` would push, some of which might
+  not be meant to go anywhere yet. `CLAUDE.md`'s own Commands section
+  already had it right; this line just hadn't matched in practice since
+  the actual first release. Either form triggers
+  `.github/workflows/release.yml`, which runs `goreleaser release --clean`
+  and does everything else.
 - `internal/buildinfo`'s `resolve()` logic (ldflags win on a release build,
   `runtime/debug.ReadBuildInfo()` otherwise) is exercised for the first
   time by a real release build here, via a local
@@ -88,9 +99,14 @@ uses that sort instead of inventing a second one.
   this shipped — not just asserted true by the M0-era table tests, which
   necessarily could only test `resolve()`'s pure logic in isolation, never
   a real `-ldflags`-built binary's `dashsync version` output.
-- No Docker image or package-manager install path exists yet. Anyone
+- ~~No Docker image or package-manager install path exists yet. Anyone
   wanting one has exactly the two options in the README: download a
-  binary, or `go install`.
+  binary, or `go install`.~~ No longer true — see
+  [ADR 010](010-docker-image.md) (Docker image) and
+  [ADR 011](011-homebrew-tap.md) (Homebrew tap). Kept here, struck
+  through rather than deleted, as the record of what was actually true
+  at M5's release: this ADR is about the process M5 set up, not a living
+  list of install methods — the README is.
 - The very first tag's changelog covers every `feat`/`fix` commit since
   the repository began (M1 through M4), not "since the last release" —
   there is no last release yet. Expected and harmless for a first
