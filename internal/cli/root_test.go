@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,5 +166,35 @@ func TestAggregateHostResults_NoHostsIsNotTreatedAsAllFailed(t *testing.T) {
 	}
 	if services != nil || warnings != nil {
 		t.Errorf("aggregateHostResults(nil) = (%v, %v), want (nil, nil)", services, warnings)
+	}
+}
+
+func TestExitCodeFor_PendingChangesGetsItsOwnCode(t *testing.T) {
+	t.Parallel()
+
+	err := &pendingChangesError{count: 2, path: "services.yaml"}
+	if got := exitCodeFor(err); got != exitPendingChanges {
+		t.Errorf("exitCodeFor(pendingChangesError) = %d, want %d", got, exitPendingChanges)
+	}
+}
+
+func TestExitCodeFor_EverythingElseGetsExitOne(t *testing.T) {
+	t.Parallel()
+
+	if got := exitCodeFor(errors.New("boom")); got != 1 {
+		t.Errorf("exitCodeFor(plain error) = %d, want 1 (only pendingChangesError should get %d)", got, exitPendingChanges)
+	}
+}
+
+func TestExitCodeFor_WrappedPendingChangesErrorStillMatches(t *testing.T) {
+	t.Parallel()
+
+	// fmt.Errorf("...: %w", ...) is how an error would realistically reach
+	// Run() through cobra's own layers — errors.As, not a bare type
+	// assertion, is what has to do the matching for this to work in
+	// practice, not just against the unwrapped error directly.
+	wrapped := fmt.Errorf("sync: %w", &pendingChangesError{count: 1, path: "x.yaml"})
+	if got := exitCodeFor(wrapped); got != exitPendingChanges {
+		t.Errorf("exitCodeFor(wrapped pendingChangesError) = %d, want %d", got, exitPendingChanges)
 	}
 }
