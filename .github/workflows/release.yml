@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  packages: write # GoReleaser's dockers_v2 step pushes to ghcr.io under this same GITHUB_TOKEN
 
 jobs:
   release:
@@ -35,6 +36,25 @@ jobs:
         run: go test ./... -race
       - name: go vet
         run: go vet ./...
+      # dockers_v2 (docs/decisions/010) builds linux/amd64+linux/arm64 in
+      # one buildx invocation. ubuntu-latest ships buildx itself but not a
+      # builder that actually supports multi-platform output, and no QEMU
+      # to emulate the non-native arch — Docker Desktop bundles both
+      # automatically (which is why this worked untouched in local
+      # testing), but a bare Actions runner needs both set up explicitly,
+      # or the very first real tag push fails here. These two steps are
+      # GoReleaser's own documented prerequisite for dockers_v2 on Linux.
+      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      # GoReleaser's dockers_v2 step pushes images itself, but it doesn't
+      # log in for you — that's this step's job, same GITHUB_TOKEN the
+      # goreleaser-action step below already uses for the GitHub Release
+      # itself.
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser

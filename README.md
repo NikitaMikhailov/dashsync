@@ -67,6 +67,30 @@ tag, but `commit`/`date` come back `unknown` — Go only embeds those from a
 local git checkout's own VCS info, which a module-proxy install doesn't
 have. A release binary gets both, via ldflags.)
 
+Or run it as a container — a multi-arch (amd64/arm64) image is published
+to `ghcr.io/nikitamikhailov/dashsync` on every release:
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/nikitamikhailov/dashsync inspect
+```
+
+An `ssh://` host (see [docs/decisions/009](docs/decisions/009-ssh-docker-discovery.md))
+needs a bit more mounted in, since the container starts with no SSH
+history of its own — a `known_hosts` and a forwarded agent socket, not
+just the config file:
+
+```bash
+docker run --rm \
+  -v /path/to/dashsync.yaml:/dashsync.yaml:ro \
+  -v ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro \
+  -v $SSH_AUTH_SOCK:$SSH_AUTH_SOCK -e SSH_AUTH_SOCK \
+  ghcr.io/nikitamikhailov/dashsync inspect --config /dashsync.yaml
+```
+
+See [docs/decisions/010](docs/decisions/010-docker-image.md) for why the
+image is built the way it is.
+
 ## Usage
 
 ```bash
