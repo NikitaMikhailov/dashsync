@@ -3,6 +3,7 @@ package discovery
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -30,17 +31,16 @@ type sshTarget struct {
 // than a dashsync config field: there's exactly one reasonable place for
 // each of those to live already, and it isn't here.
 //
-// A userinfo or host starting with "-" is rejected outright, not merely
-// defused by args()'s own "--" (below): url.URL's userinfo grammar
-// (RFC 3986) permits percent-encoded characters a naive check might miss,
-// and ssh(1) accepts bundled short options like "-oProxyCommand=...",
-// which OpenSSH executes via the shell before any network connection is
-// even attempted — a dashsync.yaml address is meant to name a Docker
-// daemon, not carry an ssh(1) command-line flag. Found and fixed via
-// review: an earlier version of this code passed User/Host straight
-// through as a bare positional argument, and
+// A userinfo or host that looks like an ssh(1) option, or carries a
+// control character, is rejected outright by validSSHArgValue — not
+// merely defused by args()'s own "--" (below). See that function's own
+// doc comment for why both checks exist and what each one alone misses.
+// A dashsync.yaml address is meant to name a Docker daemon, not carry an
+// ssh(1) command-line flag or an embedded control character. Found and
+// fixed via review: an earlier version of this code passed User/Host
+// straight through as a bare positional argument, and
 // "ssh://-oProxyCommand=...@host" ran the injected command for real
-// against the actual system ssh binary before this check existed.
+// against the actual system ssh binary before any check existed.
 func parseSSHTarget(address string) (sshTarget, error) {
 	u, err := url.Parse(address)
 	if err != nil {
@@ -49,14 +49,14 @@ func parseSSHTarget(address string) (sshTarget, error) {
 	if u.Hostname() == "" {
 		return sshTarget{}, fmt.Errorf("invalid ssh address %q: no host", address)
 	}
-	if strings.HasPrefix(u.Hostname(), "-") {
-		return sshTarget{}, fmt.Errorf("invalid ssh address %q: host must not start with \"-\"", address)
+	if err := validSSHArgValue(u.Hostname()); err != nil {
+		return sshTarget{}, fmt.Errorf("invalid ssh address %q: host %w", address, err)
 	}
 	var user string
 	if u.User != nil {
 		user = u.User.Username()
-		if strings.HasPrefix(user, "-") {
-			return sshTarget{}, fmt.Errorf("invalid ssh address %q: user must not start with \"-\"", address)
+		if err := validSSHArgValue(user); err != nil {
+			return sshTarget{}, fmt.Errorf("invalid ssh address %q: user %w", address, err)
 		}
 	}
 	if u.Path != "" && u.Path != "/" {
@@ -65,6 +65,30 @@ func parseSSHTarget(address string) (sshTarget, error) {
 				"against the remote's default docker context, regardless of any path) — remove it", address)
 	}
 	return sshTarget{User: user, Host: u.Hostname(), Port: u.Port()}, nil
+}
+
+// validSSHArgValue rejects a user or host value that could either be
+// misinterpreted as an ssh(1) command-line option (a leading "-" — see
+// args()'s own "--" for the second, independent layer against this) or
+// smuggle a control character into the argument ssh(1) itself receives.
+// url.Parse percent-decodes freely, so "user%0a-oProxyCommand=..." is a
+// syntactically valid URL whose userinfo contains an embedded newline —
+// found during review to pass every check that only looked at the first
+// character. It happened to be rejected by this environment's OpenSSH's
+// own username validation regardless, but relying on the far end of a
+// pipe to catch what dashsync itself constructs is exactly the kind of
+// incidental, version-dependent safety net this package doesn't rely on
+// anywhere else.
+func validSSHArgValue(s string) error {
+	if strings.HasPrefix(s, "-") {
+		return errors.New("must not start with \"-\"")
+	}
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("must not contain control characters (found %q)", r)
+		}
+	}
+	return nil
 }
 
 // args returns the ssh(1) CLI arguments identifying this target and

@@ -30,7 +30,8 @@ as the raw HTTP connection to the remote daemon. `internal/discovery/
 sshconn.go` does the identical thing directly: `commandConn` wraps an
 `*exec.Cmd`'s pipes as a `net.Conn`, `sshDockerDialer` builds the command,
 and `newSSHDockerClient` wires that dialer into `client.New` via
-`client.WithDialContext`.
+`client.WithHTTPClient` — not `client.WithDialContext`; see the critical
+bug below for exactly why that distinction matters and isn't stylistic.
 
 **Zero new dependencies.** Only `os/exec`, `net`, `net/url`, `context` —
 all `$gostd`-allowed already. The alternative, vendoring

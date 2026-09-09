@@ -287,6 +287,22 @@ func TestLoad_RejectsTwoHostsWithDifferentlyCasedSameAddress(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsTwoSSHHostsDifferingOnlyByUser(t *testing.T) {
+	t.Parallel()
+
+	// addressScheme's canonical form is built from u.Host alone, which
+	// never includes userinfo — "ssh://alice@10.0.0.6" and
+	// "ssh://bob@10.0.0.6" name the same daemon regardless of which user
+	// connects, and must be flagged as duplicates the same way two
+	// differently-cased tcp:// addresses already are.
+	src := "hosts:\n  - name: a\n    address: ssh://alice@10.0.0.6\n  - name: b\n    address: ssh://bob@10.0.0.6\n"
+	path := writeFile(t, src)
+
+	if _, err := config.Load(path); err == nil {
+		t.Fatal("Load() error = nil, want an error: same ssh host, different user, still the same daemon")
+	}
+}
+
 func TestLoad_TLSViolationPriority_EmptyAddressWinsOverCertKeyMismatch(t *testing.T) {
 	t.Parallel()
 

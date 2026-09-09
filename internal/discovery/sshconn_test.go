@@ -43,6 +43,19 @@ func TestParseSSHTarget(t *testing.T) {
 		// before this rejection existed — see the doc comment above.
 		{name: "leading dash in userinfo is rejected (option-injection attempt)", address: "ssh://-oProxyCommand=touch%20pwned@10.0.0.6", wantErr: true},
 		{name: "leading dash in host is rejected (option-injection attempt)", address: "ssh://-oProxyCommand=touch%20pwned", wantErr: true},
+		{name: "not confused by a literal double-dash that isn't leading", address: "ssh://foo--bar@host", want: sshTarget{User: "foo--bar", Host: "host"}},
+
+		// Regression: found in review of the leading-"-" fix above.
+		// url.Parse percent-decodes freely, so a userinfo like
+		// "user%0a-oProxyCommand=..." is a syntactically valid URL whose
+		// decoded value contains an embedded newline and doesn't start
+		// with "-" — the leading-dash check alone doesn't catch it. This
+		// specific payload happened to be rejected by the local system's
+		// own ssh(1) username validation regardless, but that's an
+		// incidental, version-dependent property of the far end of a
+		// pipe, not something dashsync itself should rely on.
+		{name: "embedded control character in userinfo is rejected", address: "ssh://user%0a-oProxyCommand=touch%2Ftmp%2Fx@127.0.0.1", wantErr: true},
+		{name: "embedded control character in host is rejected", address: "ssh://host%0aname", wantErr: true},
 	}
 
 	for _, tc := range tests {
