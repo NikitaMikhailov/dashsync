@@ -22,7 +22,12 @@ tagged both `{{ .Version }}` (immutable, for pinning) and `latest`
 deliberate exception to the versionless-only naming the `.goreleaser.yaml`
 archives section otherwise avoids, for the opposite reason: a filename
 needs to be stable across versions for `/releases/latest/download/` to
-work, a tag is *supposed* to move).
+work, a tag is *supposed* to move). Confirmed against the real, published
+image after the first tag using this pipeline: `{{ .Version }}` renders
+*without* the git tag's `v` prefix (`0.5.0`, from git tag `v0.5.0`) — the
+same stripping `internal/buildinfo` already documents for the version
+string it embeds. `docker pull ghcr.io/nikitamikhailov/dashsync:v0.5.0`
+(with the `v`, by analogy to the git tag) 404s; `:0.5.0` is the real tag.
 
 **`dockers_v2`, not the older `dockers`/`docker_manifests`.** The exact
 GoReleaser version this project pins (2.18.1, per ADR 006) already
