@@ -90,9 +90,16 @@ dashsync sync --format dashy --output-path conf.yml
 A container opts in with `dashsync.enable=true`; see
 [docs/decisions/001](docs/decisions/001-label-schema.md) for the full label
 contract. For discovery across more than one Docker host (TCP, TLS, a
-non-default socket), point `--config` at a `dashsync.yaml` describing them
-— see [docs/decisions/004](docs/decisions/004-multi-host-config-schema.md)
-for its schema; every subcommand's `--help` has the full flag list.
+non-default socket, or SSH — `ssh://user@host[:port]`, no separate
+identity/agent config: it reuses your own `ssh` and `~/.ssh/config`
+exactly like `docker -H ssh://...` does, right down to needing a manual,
+interactive `ssh` run once to accept a host's key before dashsync's own
+non-interactive connection can reach it), point `--config` at a
+`dashsync.yaml` describing them — see
+[docs/decisions/004](docs/decisions/004-multi-host-config-schema.md) for
+its schema and [docs/decisions/009](docs/decisions/009-ssh-docker-discovery.md)
+for how the SSH case works; every subcommand's `--help` has the full flag
+list.
 
 ## Typical workflow
 

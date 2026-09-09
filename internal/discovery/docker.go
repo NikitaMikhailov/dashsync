@@ -53,18 +53,40 @@ func NewDockerClient() (*client.Client, error) {
 // TLS configuration meaningful in the first place (see
 // docs/decisions/004-multi-host-config-schema.md).
 //
+// An "ssh://" address is handled separately from tcp/unix, entirely
+// outside the SDK's own (nonexistent) SSH support — see
+// docs/decisions/009-ssh-docker-discovery.md and newSSHDockerClient.
+//
 // Unlike NewDockerClient, this does have real branches — empty vs. explicit
-// address, and TLS vs. no TLS — and client.New doesn't dial anything, so
-// they're each unit-tested (via the resulting client's own DaemonHost(),
-// and via a deliberately-bad TLS file path) without needing a real daemon.
-// What isn't covered here is whether a *client.Client built this way can
+// address, TLS vs. no TLS, and now ssh vs. everything else — and
+// client.New doesn't dial anything, so the tcp/unix ones are each
+// unit-tested (via the resulting client's own DaemonHost(), and via a
+// deliberately-bad TLS file path) without needing a real daemon. What
+// isn't covered here is whether a *client.Client built this way can
 // actually talk to a real Docker API — that's what the real-Docker
-// integration tests are for.
+// integration tests (and, for ssh specifically, a manual check against a
+// real reachable host) are for.
 func NewDockerClientForHost(address, tlsCA, tlsCert, tlsKey string) (*client.Client, error) {
 	if address == "" {
 		c, err := client.New(client.FromEnv)
 		if err != nil {
 			return nil, fmt.Errorf("connect to docker: %w", err)
+		}
+		return c, nil
+	}
+
+	if strings.HasPrefix(address, "ssh://") {
+		// config.validate() already rejects tls set alongside an ssh
+		// address, but Host is a plain exported struct nothing stops a
+		// caller from constructing by hand outside that path — checked
+		// again here so this function's own contract doesn't silently
+		// depend on a caller having gone through validation first.
+		if tlsCA != "" || tlsCert != "" || tlsKey != "" {
+			return nil, fmt.Errorf("connect to docker host %q: tls is not supported over ssh", address)
+		}
+		c, err := newSSHDockerClient(address)
+		if err != nil {
+			return nil, fmt.Errorf("connect to docker host %q: %w", address, err)
 		}
 		return c, nil
 	}

@@ -237,25 +237,38 @@ func TestLoad_RejectsTLSOnUnixSocket(t *testing.T) {
 	}
 }
 
-func TestLoad_RejectsSSHScheme(t *testing.T) {
+func TestLoad_AcceptsSSHScheme(t *testing.T) {
 	t.Parallel()
 
-	// ssh:// is a real Docker connection form, but github.com/moby/moby/client
-	// doesn't actually implement SSH transport — it silently falls back to a
-	// plain TCP dial instead. Advertising it as a supported scheme would be
-	// worse than not mentioning it: syntax that parses but behaves nothing
-	// like what it looks like it should. It must be rejected the same way
-	// any other unsupported scheme is, not specially accepted only to fail
-	// confusingly later at connection time.
+	// ssh:// used to be rejected here because github.com/moby/moby/client
+	// doesn't implement SSH transport on its own. It's supported now via
+	// internal/discovery's own exec+"docker system dial-stdio" mechanism
+	// (see docs/decisions/009-ssh-docker-discovery.md) — config validation
+	// no longer has any reason to reject it.
 	src := "hosts:\n  - name: a\n    address: ssh://user@10.0.0.6\n"
+	path := writeFile(t, src)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil: ssh:// is now a supported scheme", err)
+	}
+	if len(cfg.Hosts) != 1 || cfg.Hosts[0].Address != "ssh://user@10.0.0.6" {
+		t.Errorf("Hosts = %+v, want the ssh:// address preserved", cfg.Hosts)
+	}
+}
+
+func TestLoad_RejectsTLSOnSSHAddress(t *testing.T) {
+	t.Parallel()
+
+	src := "hosts:\n  - name: a\n    address: ssh://user@10.0.0.6\n    tls:\n      ca: /certs/ca.pem\n"
 	path := writeFile(t, src)
 
 	_, err := config.Load(path)
 	if err == nil {
-		t.Fatal("Load() error = nil, want an error: ssh:// is not an actually-supported scheme")
+		t.Fatal("Load() error = nil, want an error: tls is not meaningful over ssh")
 	}
 	if !strings.Contains(err.Error(), "ssh") {
-		t.Errorf("error = %q, want it to name the rejected scheme", err)
+		t.Errorf("error = %q, want it to mention ssh", err)
 	}
 }
 
