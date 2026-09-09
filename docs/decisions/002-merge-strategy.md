@@ -130,27 +130,54 @@ which turns it into an entry dashsync no longer considers its own.
   original. dashsync's own output always quotes such names (`"123":`), so
   this only bites a *pre-existing*, hand-authored file with an unquoted
   ambiguous name — a narrow but real gap.
-- **A marker comment inside a flow-style items list isn't recognized as a
-  marker.** `readEntries`'s comment extraction (`seqEntry`, `ast.go`) is
-  built against block-style sequences, where a comment token cleanly
-  precedes its entry. A human (or a YAML auto-formatter set to flow style)
-  can legally collapse an items list dashsync already manages into flow
-  style while leaving the marker comment physically present inside the
-  brackets — `items: [{# dashsync:managed id=... content=...\n name:
-  Jellyfin, url: http://x}]` parses, but the comment attaches to the
-  nested mapping's own first key instead of surfacing where
-  `findManagedIndex` looks for it. The next update to that service finds
-  no existing marker, appends a brand-new entry with a fresh one, and the
-  original — now permanently unmarked — becomes inert duplicate content
-  dashsync no longer manages or ever removes. Found via the same review
-  that produced ADR 007's flow-style fixes, and confirmed pre-existing
+- **A marker comment embedded inside a flow-style items list isn't
+  recognized as a marker.** `readEntries`'s comment extraction (`seqEntry`,
+  `ast.go`) reads `seq.GetComment()`/`seq.ValueHeadComments` — fields
+  goccy/go-yaml only ever populates for a block-style sequence's entries.
+  A human (or a formatter) can legally collapse an items list dashsync
+  already manages into flow style while leaving the marker comment
+  physically present inside the brackets — `items: [{# dashsync:managed
+  id=... content=...\n name: Jellyfin, url: http://x}]` parses without
+  error, but empirically (verified directly against goccy/go-yaml v1.19.2,
+  not just reasoned about — see the correction below) the comment token
+  isn't attached to *any* AST node at all in that position: not the
+  sequence, not the nested mapping's first key. It's simply absent from
+  `f.String()`'s output the moment anything reserializes the document,
+  which is a step *before* dashsync-specific logic ever runs. Either way
+  `readEntries` finds no marker, the next update appends a brand-new entry
+  with a fresh one, and the original — now permanently unmarked — becomes
+  inert duplicate content dashsync no longer manages or ever removes.
+  (An earlier version of this note claimed the comment "attaches to the
+  nested mapping's own first key instead" — checked directly against the
+  library rather than assumed, and that specific claim was wrong: it
+  doesn't attach anywhere. The corrected mechanism doesn't change the
+  consequence or the fix's absence, only the "why.")
+
+  This is narrower than it first looks, and better understood in light of
+  `writeEntries`'s own doc comment (`ast.go`): a group's items sequence
+  gets force-flipped to block style by `writeEntries` on *every* sync that
+  touches that group at all (add, update, *or* remove) — so the exposure
+  window is only a hand-authored file's *first* sync after being put into
+  this exact shape, for the one entry whose marker sits at the exact
+  embedded position that gets lost. Every ordinary case checked
+  empirically alongside this one round-trips correctly: a trailing
+  comment after a flow sequence or mapping, a comment on its own line
+  before a flow value (repositioned, not lost), and — the realistic
+  version of "a managed items list has flow-style entries" — a
+  *block-style* items list whose individual entries are flow-style
+  mappings, which is exactly what
+  `TestNamedGroupAdapter_ExistingFlowStyleItemsListGetsBlockStyle` already
+  exercises and which round-trips fine. Reproducing the actual loss needs
+  the *outer* items list to also be flow-style, with the comment placed
+  right after one entry's opening `{` — specifically what a human
+  guessing at how to hand-collapse a managed entry into flow style, marker
+  included, would have to construct on purpose. Confirmed pre-existing
   (reproduces against `homepageAdapter` unmodified, not something
-  `NamedGroupAdapter` introduced). Distinct from — and not fixed by —
-  ADR 007's `normalizeGroupsListStyle`/`normalizeMappingFlowStyle`, which
-  only normalize a *container* about to receive new content; this is about
-  a comment already inside one dashsync doesn't yet know how to read back
-  out. No workaround short of not hand-collapsing a managed items list to
-  flow style in the first place.
+  `NamedGroupAdapter` introduced), and distinct from — not fixed by — ADR
+  007's `normalizeGroupsListStyle`/`normalizeMappingFlowStyle`, which only
+  normalize a container about to receive new content, not a comment
+  already inside one that's about to be read. No workaround short of not
+  hand-collapsing a managed items list to flow style in the first place.
 - **No cross-process locking.** Two `sync --output-path` invocations
   against the same file, overlapping in time (two cron schedules, a CI
   matrix sharing a path), can each read the same starting content,
