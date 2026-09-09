@@ -50,11 +50,14 @@ config surface.
 **Two implementation details worth recording, both found by reading the
 actual vendored source rather than assumed:**
 
-- `client.WithHost(...)` must be listed *before*
-  `client.WithDialContext(...)` in `client.New(...)`. `WithHost` calls
-  `sockets.ConfigureTransport`, which overwrites `transport.DialContext`
-  with a plain dialer as its default-case behavior — passed in the other
-  order, the custom SSH dialer would be silently clobbered.
+- `client.WithHost(...)` must be listed *before* the option that installs
+  the custom dialer, and that option is `client.WithHTTPClient(...)`, not
+  `client.WithDialContext(...)` — see the critical-bug note below for why
+  the latter isn't enough. `WithHost` calls `sockets.ConfigureTransport`,
+  which configures the transport that exists *at that point* — including
+  setting `DialContext` to a plain dialer — as its default-case behavior,
+  so it must run against the client's original, throwaway transport
+  before that transport is replaced outright.
   `client.WithHost("http://" + client.DummyHost)` — the SDK's own
   placeholder for "never actually resolved" — is used as the host value,
   since the custom dialer ignores whatever network/addr the HTTP layer
@@ -76,6 +79,53 @@ actual vendored source rather than assumed:**
   tried first during development and produced exactly that race (`ssh`'s
   own diagnostic text missing from the surfaced error about half the
   time) before this fix.
+
+## Two critical bugs found during review, fixed before this ever shipped
+
+**Argument injection into the `ssh(1)` invocation (CWE-88).** The first
+version of `parseSSHTarget` passed a URL's userinfo straight through into
+`sshTarget.User`, and `args()` glued it into the `ssh` argv as a bare
+positional element with no validation and no end-of-options marker.
+`ssh://-oProxyCommand=...@host` parses as a perfectly valid URL whose
+userinfo happens to start with `-oProxyCommand=` — RFC 3986's userinfo
+grammar permits it, percent-encoded space included — and `ssh(1)` accepts
+that exact shape as a bundled short option (`ssh -oKey=value`), running
+the `ProxyCommand` via the shell *before any network connection is even
+attempted*. This was proven exploitable for real, against the actual
+system `ssh` binary, during review — not a theoretical concern. Fixed in
+two independent layers, deliberately redundant: `parseSSHTarget` now
+rejects a user or host starting with `-` outright, and `args()` inserts
+`--` before the destination argument so `ssh` stops parsing options
+there regardless, in case the first check is ever weakened by a future
+change. A non-empty path component (`ssh://host/var/run/docker.sock`,
+mirroring `unix://`'s syntax by a natural but wrong analogy) is now
+rejected too, rather than silently ignored — found alongside the same
+review pass.
+
+**`$HTTP_PROXY` silently corrupting every request.** `sockets
+.ConfigureTransport` (called by `WithHost`) sets the transport's `Proxy`
+field to `http.ProxyFromEnvironment` as part of the same default-case
+behavior that sets `DialContext` — the first version of this code only
+overrode `DialContext` (via `client.WithDialContext`), leaving that
+`Proxy` setting in place on the transport actually in use. On any machine
+with `$HTTP_PROXY`/`$http_proxy` set — unremarkable on exactly the
+corporate networks most likely to need SSH-bastion Docker access in the
+first place — every request would silently switch to proxy (absolute-URI)
+request-line form, which a plain Docker daemon on the other end of the
+tunnel doesn't understand, breaking discovery with no clear error
+pointing at the actual cause. Fixed by using `client.WithHTTPClient`
+instead: it replaces the transport wholesale with one this code fully
+controls, `Proxy` left at its zero value (nil, meaning never proxy).
+Reproduced concretely before the fix (captured the literal proxy-form
+request bytes with `$HTTP_PROXY` set) and covered by
+`TestNewDockerClientWithDialer_IgnoresHTTPProxy`, which fails against the
+`WithDialContext`-only version and passes against this one.
+
+Both were found by the same review pass, neither by the manual
+verification step below — worth remembering next time "I tried it against
+a real host and it worked" feels like enough on its own for anything
+touching argument construction or environment-dependent transport
+configuration.
 
 ## Consequences
 
@@ -123,6 +173,18 @@ actual vendored source rather than assumed:**
   correctly — real added CI complexity for a second launch pass. The
   unit tests in `sshconn_test.go` (a `cat` stand-in for `ssh`,
   argv-inspection via a fake-`ssh` script) cover the plumbing without any
-  real SSH involved; end-to-end correctness against a genuine `sshd` and
-  remote `docker` CLI was instead verified manually against a real,
-  already-available host as part of landing this change.
+  real SSH involved.
+
+## Manual verification against a real host
+
+Run before merging, not just asserted: `dashsync inspect` and
+`dashsync sync --format homepage` (both to stdout and with
+`--output-path`, twice, for idempotency) against a real, already-reachable
+VPS over `ssh://`, key loaded via `ssh-add` (not a config field — see "No
+new `Host` config fields" above). Discovered the same services that
+host's local Unix socket discovers, byte-identical rendered output, and a
+genuine "no changes" on the second `sync` run. Also incidentally
+exercised the real failure path: running the same command with no key
+loaded produced `... EOF: <user>@<host>: Permission denied (publickey)` —
+`commandConn.annotate`'s captured-stderr behavior surfacing a real
+OpenSSH diagnostic through a real failure, not a synthetic one.
