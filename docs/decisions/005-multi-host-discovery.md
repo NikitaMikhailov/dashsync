@@ -49,6 +49,20 @@ yet) would need to bound by the caller's deadline, and this project's own
 convention is `context.Context` first, always. Threading it through now
 costs nothing and avoids a second signature break later.
 
+**Update once that future connection method actually arrived
+([ADR 009](009-ssh-docker-discovery.md)): the prediction came true, but
+not through this exact seam.** `connectDocker` (`multihost.go`) still
+discards its `ctx` outright, and `NewDockerClientForHost` still doesn't
+take one — SSH's subprocess cancellation instead rides the ordinary
+per-request `context.Context` Go's own `http.Client` already threads into
+`client.WithDialContext`'s dial function on every API call, which
+`Discover`'s own caller supplies regardless of anything in this file. The
+bounded-deadline need this paragraph anticipated was real; the specific
+plumbing that ended up satisfying it wasn't the one being reserved here.
+`dockerConnector`'s own `ctx` parameter remains exactly as unused today as
+when this was written — worth knowing before assuming SSH support means
+this seam is finally load-bearing.
+
 **One shared `dockerCallTimeout` budget across all hosts, not one per
 host.** `discoverDocker` wraps a single 10s `context.WithTimeout` around
 the whole `DiscoverAll` call. Because hosts run concurrently, this reads as

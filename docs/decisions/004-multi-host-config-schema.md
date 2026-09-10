@@ -19,7 +19,7 @@ construction.
 **Address must be empty or a recognized scheme — and "recognized" means
 "actually implemented by this project's dependency," not "a scheme Docker
 somewhere accepts."** `address` accepts `tcp://` or `unix://`, or empty to
-mean "use the environment's own Docker connection." `ssh://` is a real,
+mean "use the environment's own Docker connection." ~~`ssh://` is a real,
 documented Docker connection form, but `github.com/moby/moby/client` — the
 SDK this project depends on — doesn't implement SSH transport:
 `client.WithHost` hands an `ssh://` address straight to a plain TCP dialer,
@@ -27,7 +27,12 @@ which fails confusingly instead of tunneling over SSH the way writing
 `ssh://` would reasonably lead someone to expect. Accepting it as valid
 syntax with silently wrong behavior underneath would be worse than
 rejecting it outright, so it's rejected the same way any other unsupported
-scheme is. A scheme-less address like `10.0.0.6:2376` — valid for
+scheme is.~~ `ssh://` is accepted too, as of
+[ADR 009](009-ssh-docker-discovery.md) — the SDK gap described above is
+still real and still why `client.WithHost` alone can't be trusted with it,
+but dashsync now works around it directly instead of rejecting the scheme
+outright; see that ADR for the mechanism. A scheme-less address like
+`10.0.0.6:2376` — valid for
 `$DOCKER_HOST`, invalid here — is rejected at load time too, instead of
 silently producing a broken `Host.ResolveURLHost` result or an opaque
 connection failure far from the config line that caused it. `npipe`
@@ -50,9 +55,11 @@ be indistinguishable once they reach `inspect`'s HOST column or
 the confusion from config-load time to output-reading time.
 
 **TLS configuration must be coherent with the address it's attached to,
-checked in a fixed priority order.** Three rules, checked in this order
-so which error wins when a host breaks more than one is a deliberate
-choice:
+checked in a fixed priority order.** Rules, checked in this order so
+which error wins when a host breaks more than one is a deliberate choice
+(originally three; a fourth was added by [ADR 009](009-ssh-docker-discovery.md)
+when `ssh://` support landed, in the same fixed-order list rather than as
+an afterthought):
 
 1. `tls` with no `address` is rejected — an empty address means "the
    environment's own Docker connection," which never consults this
@@ -60,7 +67,10 @@ choice:
 2. `tls` on a `unix://` address is rejected — a unix socket has no TLS
    layer, so `client.WithTLSClientConfig` never comes into play, and the
    setting would just be silently ignored, same as above.
-3. `tls.cert` and `tls.key` must both be set or both be empty — a CA-only
+3. `tls` on an `ssh://` address is rejected — SSH already provides its
+   own transport security, so a separate TLS layer is equally meaningless
+   here, for the same reason as `unix://` above.
+4. `tls.cert` and `tls.key` must both be set or both be empty — a CA-only
    block (server verification without a client certificate) is valid, but
    a cert without its key (or vice versa) fails deep inside
    `client.WithTLSClientConfig`'s underlying `tlsconfig.Client`, which
@@ -99,7 +109,7 @@ for something this consequential.
   assume every `config.Host` it receives has an empty-or-valid `Address`
   scheme and internally consistent `TLS`, and doesn't need to repeat these
   checks itself.
-- The three TLS rules are checked in a fixed order specifically so a host
+- The TLS rules are checked in a fixed order specifically so a host
   breaking more than one reports the same error every time — pinned down
   by `TestLoad_TLSViolationPriority_EmptyAddressWinsOverCertKeyMismatch`,
   not left to accidentally depend on `validate()`'s statement order.
