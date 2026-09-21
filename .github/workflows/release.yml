@@ -45,7 +45,7 @@ jobs:
       # or the very first real tag push fails here. These two steps are
       # GoReleaser's own documented prerequisite for dockers_v2 on Linux.
       - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # GoReleaser's dockers_v2 step pushes images itself, but it doesn't
       # log in for you — that's this step's job, same GITHUB_TOKEN the
       # goreleaser-action step below already uses for the GitHub Release
